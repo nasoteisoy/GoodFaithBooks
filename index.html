@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- connect-src covers the database and Open Library; img-src covers cover art.
+     No CDN, no SDK, no inline script or style. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none';
+               script-src 'self';
+               style-src 'self';
+               img-src 'self' https: data:;
+               connect-src https://chummy-games-12a1d-default-rtdb.firebaseio.com https://openlibrary.org;
+               base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>Book Club</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <span class="mark">◈</span>
+    <h1>Book&nbsp;Club</h1>
+    <span id="conn" class="conn off">connecting</span>
+  </div>
+  <label class="who">
+    <span>you are</span>
+    <input id="who" type="text" maxlength="80" placeholder="your name" autocomplete="off"
+           aria-describedby="who-hint">
+  </label>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button id="tab-browse" class="tab is-on" role="tab">Browse the shelf</button>
+  <button id="tab-add" class="tab" role="tab">Suggest a book</button>
+</nav>
+
+<!-- ------------------------------------------------------------ BROWSE -->
+<main id="panel-browse" class="panel">
+  <div class="toolbar">
+    <input id="q" class="search" type="search" placeholder="Search title, author, note, label…" autocomplete="off">
+    <select id="sort" class="select" aria-label="Sort by">
+      <option value="new">Newest first</option>
+      <option value="old">Oldest first</option>
+      <option value="title">Title A–Z</option>
+      <option value="author">Author A–Z</option>
+      <option value="votes">Most wanted</option>
+      <option value="rating">Highest rated</option>
+    </select>
+  </div>
+
+  <div id="filters" class="filters"></div>
+  <p id="count" class="count"></p>
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty hidden"></div>
+</main>
+
+<!-- --------------------------------------------------------------- ADD -->
+<section id="panel-add" class="panel hidden">
+  <form id="form" class="form" autocomplete="off">
+    <p id="who-hint" class="who-hint hidden">
+      Add your name at the top of the page first — suggestions are signed.
+    </p>
+
+    <!-- Honeypot: hidden from people by CSS, filled in by bots. Do not remove
+         the .hp rule from styles.css without removing this too. -->
+    <div class="hp" aria-hidden="true">
+      <label for="f-website">Website</label>
+      <input id="f-website" name="website" type="text" tabindex="-1" autocomplete="off">
+    </div>
+
+    <div class="field lookup">
+      <label for="f-title">Title <span class="req">required</span></label>
+      <input id="f-title" name="title" type="text" maxlength="300" required
+             placeholder="Start typing — we'll look it up">
+      <div id="suggest" class="suggest hidden"></div>
+      <p class="hint">Pick a match to fill in the author, year and cover automatically.</p>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="f-author">Author</label>
+        <input id="f-author" name="author" type="text" maxlength="200">
+      </div>
+      <div class="field narrow">
+        <label for="f-year">Year</label>
+        <input id="f-year" name="year" type="text" maxlength="8">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="f-category">Category</label>
+        <input id="f-category" name="category" type="text" maxlength="60" list="cats"
+               placeholder="Fiction, History, Sci-fi…">
+        <datalist id="cats"></datalist>
+      </div>
+      <div class="field narrow">
+        <label for="f-rating">Your rating</label>
+        <select id="f-rating" name="rating" class="select">
+          <option value="0">not rated</option>
+          <option value="5">★★★★★</option>
+          <option value="4">★★★★</option>
+          <option value="3">★★★</option>
+          <option value="2">★★</option>
+          <option value="1">★</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="f-labels">Labels</label>
+      <input id="f-labels" name="labels" type="text" maxlength="400"
+             placeholder="comma separated — short, funny, made me cry">
+      <div id="label-bank" class="label-bank"></div>
+    </div>
+
+    <div class="field">
+      <label for="f-note">Why should we read it?</label>
+      <textarea id="f-note" name="note" maxlength="2000" rows="4"
+                placeholder="A sentence or two. This is the part people actually read."></textarea>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="f-cover">Cover image URL</label>
+        <input id="f-cover" name="cover" type="url" maxlength="600" placeholder="filled in by lookup">
+      </div>
+      <div class="field">
+        <label for="f-link">More info link</label>
+        <input id="f-link" name="link" type="url" maxlength="600">
+      </div>
+    </div>
+
+    <div class="preview-wrap">
+      <img id="f-preview" class="preview hidden" alt="Cover preview">
+    </div>
+
+    <div class="actions">
+      <button type="submit" id="submit" class="btn primary">Add to the shelf</button>
+      <button type="reset" class="btn">Clear</button>
+      <span id="form-msg" class="form-msg"></span>
+    </div>
+  </form>
+</section>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

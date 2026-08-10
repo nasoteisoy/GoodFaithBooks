@@ -1,0 +1,28 @@
+# This repo is PUBLIC (free GitHub Pages requires it), so nothing that is not
+# meant for the world belongs here. Keep it to the three site files.
+
+# Test-only shims, injected into temp copies by the local test scripts.
+_testconfig.js
+_probe.js
+_driver.js
+
+# Never: credentials of any kind.
+.env
+.env.*
+*.pem
+*.key
+*firebase-adminsdk*.json
+*-adminsdk-*.json
+*serviceAccount*.json
+service-account*.json
+*-credentials.json
+
+# Never: data.
+data/
+backups/
+*.corrupt-*.json
+
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

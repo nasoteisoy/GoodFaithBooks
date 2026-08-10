@@ -50,6 +50,25 @@
   <button id="tab-add" class="tab" role="tab">Suggest a book</button>
 </nav>
 
+<!-- Only shown with ?admin in the URL, and only actually works for an
+     account listed in bookclub/admins in the database — see app.js. -->
+<section id="admin-panel" class="admin-panel hidden">
+  <h2>Admin: default suggestions</h2>
+  <p class="modal-hint">These show up as options for everyone, even before any book uses them. Comma separated.</p>
+  <div class="field">
+    <label for="admin-categories">Default categories</label>
+    <input id="admin-categories" type="text" maxlength="600" placeholder="Fiction, Nonfiction, Sci-fi…">
+  </div>
+  <div class="field">
+    <label for="admin-labels">Default labels</label>
+    <input id="admin-labels" type="text" maxlength="600" placeholder="short, funny, made me cry…">
+  </div>
+  <div class="actions">
+    <button type="button" id="admin-save" class="btn primary">Save defaults</button>
+    <span id="admin-msg" class="form-msg"></span>
+  </div>
+</section>
+
 <!-- ------------------------------------------------------------ BROWSE -->
 <main id="panel-browse" class="panel">
   <div class="toolbar">

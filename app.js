@@ -35,6 +35,14 @@ const WEB_API_KEY = window.BOOKCLUB_API_KEY || 'AIzaSyCU-pGbrjIxzcGBjCGfX8_W-dMc
 const IDENTITY = 'https://identitytoolkit.googleapis.com/v1';
 const SECURETOKEN = 'https://securetoken.googleapis.com/v1';
 
+/* ?admin in the URL just reveals delete buttons in the UI — it grants
+   nothing by itself. The database rules are the real gate: a delete only
+   succeeds if the signer's auth.uid is listed under bookclub/admins, which
+   nothing in this app can write (no .write rule for that path at all) — it
+   has to be added by hand in the Firebase console. So someone guessing this
+   URL sees delete buttons that simply fail with a 401 for them. */
+const ADMIN_UI = new URLSearchParams(location.search).has('admin');
+
 const $ = (id) => document.getElementById(id);
 
 function el(tag, cls, text) {
@@ -49,7 +57,11 @@ const state = {
   q: '', sort: 'new',
   cat: new Set(), label: new Set(), person: new Set(), status: new Set(),
   open: new Set(),
+  defaultCategories: [], defaultLabels: [], // admin-set, merged into the suggestion lists below
 };
+
+// RTDB returns a dense array as-is but a sparse one as an object — accept both.
+const asList = (v) => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
 
 /* --------------------------------------------------------------- identity
    Real Firebase Anonymous Auth, not a self-invented random id. The rules
@@ -101,6 +113,10 @@ async function renewAuth() {
     scheduleRefresh(j.expiresIn);
     resubscribe(); // reopen the live stream with the fresh token
     render();       // "yours" tags / vote highlighting depend on MY_UID
+    // To become an admin, this exact value goes in the Firebase console under
+    // Realtime Database -> bookclub -> admins -> (new key: this uid) -> true.
+    // Nothing in this app can write that path itself, on purpose.
+    if (ADMIN_UI) console.log('Your uid for the bookclub/admins allowlist:', MY_UID);
     return true;
   } catch (e) {
     console.error(e);
@@ -334,29 +350,39 @@ function tally(pick) {
   return [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(b[0]));
 }
 
-function chipRow(title, entries, set) {
+// A multi-select dropdown, not a single-choice one: several of these filters
+// (label especially) make sense to combine, e.g. "short" and "gentle" at
+// once, so a plain <select> would lose functionality the old chips had.
+// Options come from tally() over live data, never a fixed list, so a brand
+// new category/label/person/status shows up here the moment someone uses it.
+function filterSelect(title, entries, set) {
   if (!entries.length) return null;
-  const wrap = el('div', 'chip-group');
-  wrap.appendChild(el('span', 'chip-label', title));
+  const id = 'filter-' + title.replace(/\s+/g, '-');
+  const wrap = el('div', 'filter-field');
+  const label = el('label', 'chip-label', title);
+  label.htmlFor = id;
+  wrap.appendChild(label);
+
+  const sel = el('select', 'select');
+  sel.id = id;
+  sel.multiple = true;
+  sel.size = Math.min(entries.length, 5);
   for (const [value, n] of entries) {
-    const c = el('button', 'chip' + (set.has(value) ? ' is-on' : ''));
-    c.type = 'button';
-    c.appendChild(el('span', null, value));
-    c.appendChild(el('span', 'n', n));
-    c.addEventListener('click', () => {
-      set.has(value) ? set.delete(value) : set.add(value);
-      render();
-    });
-    wrap.appendChild(c);
+    const o = el('option', null, `${value} (${n})`);
+    o.value = value;
+    o.selected = set.has(value);
+    sel.appendChild(o);
   }
+  sel.addEventListener('change', () => {
+    set.clear();
+    for (const o of sel.selectedOptions) set.add(o.value);
+    render();
+  });
+  wrap.appendChild(sel);
   return wrap;
 }
 
-// RTDB stores a JS array as an object when keys are sparse, so accept both.
-function labelsOf(b) {
-  const l = b.labels;
-  return Array.isArray(l) ? l : (l && typeof l === 'object' ? Object.values(l) : []);
-}
+const labelsOf = (b) => asList(b.labels);
 const votesOf = (b) => (b.votes && typeof b.votes === 'object' ? b.votes : {});
 const commentsOf = (b) =>
   Object.entries(b.comments || {}).map(([id, c]) => ({ id, ...c }))
@@ -366,10 +392,10 @@ function renderFilters() {
   const box = $('filters');
   box.replaceChildren();
   for (const r of [
-    chipRow('category', tally(b => [b.category]), state.cat),
-    chipRow('label', tally(labelsOf), state.label),
-    chipRow('from', tally(b => [b.suggestedBy]), state.person),
-    chipRow('status', tally(b => [b.status]), state.status),
+    filterSelect('category', tally(b => [b.category]), state.cat),
+    filterSelect('label', tally(labelsOf), state.label),
+    filterSelect('from', tally(b => [b.suggestedBy]), state.person),
+    filterSelect('status', tally(b => [b.status]), state.status),
   ].filter(Boolean)) box.appendChild(r);
 
   if (state.cat.size + state.label.size + state.person.size + state.status.size) {
@@ -490,11 +516,29 @@ function bookCard(b) {
     foot.appendChild(a);
   }
 
-  /* No delete button, deliberately, and now backed by the rules too: create
-   * is the only thing the $id-level write rule allows, so the shelf really
-   * is append-only, not just append-only in the UI. ownerPCID is set to the
-   * signer's real auth.uid at creation and can't be spoofed. */
+  /* No regular delete button — the shelf is append-only for everyone except
+   * the admin allowlist enforced by the rules (bookclub/admins), which this
+   * app has no way to write to itself. ownerPCID is set to the signer's real
+   * auth.uid at creation and can't be spoofed. */
   if (MY_UID && b.ownerPCID === MY_UID) foot.appendChild(el('span', 'yours', 'yours'));
+
+  if (ADMIN_UI) {
+    const del = el('button', 'mini danger', 'delete');
+    del.type = 'button';
+    del.addEventListener('click', async () => {
+      if (!requireAuth()) return;
+      if (!confirm(`Remove "${b.title}" permanently? This can't be undone.`)) return;
+      del.disabled = true;
+      try {
+        await send(`bookclub/books/${b.id}`, 'DELETE');
+      } catch (e) {
+        toast(e.message);
+        del.disabled = false;
+      }
+    });
+    foot.appendChild(del);
+  }
+
   card.appendChild(foot);
 
   if (state.open.has(b.id)) card.appendChild(thread(b));
@@ -556,15 +600,23 @@ function render() {
   } else empty.classList.add('hidden');
 }
 
+// Admin-set defaults show up even with zero uses yet; real usage counts
+// (from tally) still take a category/label that's already in use to the top.
+function withDefaults(tallied, defaults) {
+  const counts = new Map(tallied);
+  for (const d of defaults) if (!counts.has(d)) counts.set(d, 0);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(b[0]));
+}
+
 function renderDatalists() {
   const cats = $('cats');
   cats.replaceChildren();
-  for (const [c] of tally(b => [b.category])) {
+  for (const [c] of withDefaults(tally(b => [b.category]), state.defaultCategories)) {
     const o = el('option'); o.value = c; cats.appendChild(o);
   }
   const bank = $('label-bank');
   bank.replaceChildren();
-  for (const [l] of tally(labelsOf).slice(0, 14)) {
+  for (const [l] of withDefaults(tally(labelsOf), state.defaultLabels).slice(0, 14)) {
     const c = el('button', 'chip', l);
     c.type = 'button';
     c.addEventListener('click', () => {
@@ -701,6 +753,33 @@ $('form').addEventListener('reset', () => setTimeout(() => {
   updatePreview(); $('form-msg').textContent = '';
 }, 0));
 
+/* --------------------------------------------------------- admin panel
+   Only visible with ?admin in the URL — the actual write is still gated by
+   the rules' admin allowlist, same as the delete buttons. See ADMIN_UI. */
+if (ADMIN_UI) $('admin-panel').classList.remove('hidden');
+
+$('admin-save').addEventListener('click', async () => {
+  if (!requireAuth()) return;
+  const msg = $('admin-msg');
+  msg.className = 'form-msg'; msg.textContent = 'Saving…';
+  const categories = [...new Set(
+    $('admin-categories').value.split(',').map(s => s.trim()).filter(Boolean)
+  )];
+  const labels = [...new Set(
+    $('admin-labels').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  )];
+  try {
+    await send('bookclub/defaults/categories', 'PUT', categories);
+    await send('bookclub/defaults/labels', 'PUT', labels);
+    state.defaultCategories = categories;
+    state.defaultLabels = labels;
+    renderDatalists();
+    msg.textContent = 'Saved.'; msg.classList.add('ok');
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+});
+
 /* -------------------------------------------------------------------- boot */
 (async function boot() {
   setStatus('connecting');
@@ -711,7 +790,19 @@ $('form').addEventListener('reset', () => setTimeout(() => {
   // scheduled renewals, not just this first call.
   renewAuth();
   try {
-    state.books = fromSnapshot(await send('bookclub/books', 'GET'));
+    const [books, defaults] = await Promise.all([
+      send('bookclub/books', 'GET'),
+      send('bookclub/defaults', 'GET').catch(() => null), // optional; never blocks the shelf loading
+    ]);
+    state.books = fromSnapshot(books);
+    if (defaults) {
+      state.defaultCategories = asList(defaults.categories);
+      state.defaultLabels = asList(defaults.labels);
+    }
+    if (ADMIN_UI) {
+      $('admin-categories').value = state.defaultCategories.join(', ');
+      $('admin-labels').value = state.defaultLabels.join(', ');
+    }
     render(); renderDatalists();
   } catch {
     $('empty').classList.remove('hidden');

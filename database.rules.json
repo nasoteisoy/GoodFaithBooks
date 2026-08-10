@@ -27,11 +27,18 @@
 
     "bookclub": {
       ".read": true,
+      "admins": { "$uid": { ".validate": "newData.isBoolean()" } },
+      "defaults": {
+        ".write": "auth != null && root.child('bookclub/admins/' + auth.uid).exists()",
+        "categories": { "$i": { ".validate": "newData.isString() && newData.val().length <= 60" } },
+        "labels":     { "$i": { ".validate": "newData.isString() && newData.val().length <= 40" } },
+        "$other": { ".validate": false }
+      },
       "books": {
         ".read": true,
         "$id": {
           ".read": true,
-          ".write": "auth != null && !data.exists() && newData.child('ownerPCID').val() === auth.uid",
+          ".write": "auth != null && ((!data.exists() && newData.child('ownerPCID').val() === auth.uid) || (!newData.exists() && root.child('bookclub/admins/' + auth.uid).exists()))",
           ".validate": "newData.hasChildren(['title','suggestedBy','ownerPCID','createdAt'])",
 
           "title":       { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 300" },

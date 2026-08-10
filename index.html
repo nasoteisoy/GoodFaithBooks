@@ -31,6 +31,20 @@
   </label>
 </header>
 
+<!-- First-visit nudge to set a name up front. Purely a UX prompt: browsing
+     and this same field in the header both still work with no name set. -->
+<div id="name-gate" class="modal-overlay hidden">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="name-gate-title">
+    <h2 id="name-gate-title">What should we call you?</h2>
+    <p class="modal-hint">Suggestions, votes, and comments are signed with this. You can change it anytime from the header.</p>
+    <input id="name-gate-input" type="text" maxlength="80" placeholder="your name" autocomplete="off">
+    <div class="modal-actions">
+      <button type="button" id="name-gate-skip" class="btn">Maybe later</button>
+      <button type="button" id="name-gate-save" class="btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
 <nav class="tabs" role="tablist">
   <button id="tab-browse" class="tab is-on" role="tab">Browse the shelf</button>
   <button id="tab-add" class="tab" role="tab">Suggest a book</button>

@@ -156,6 +156,40 @@ function requireAuth() {
   });
 })();
 
+/* First-visit nudge: if nobody's set a name yet, ask up front instead of
+   relying on people to notice the small header field on their own.
+   Skippable — browsing, and that same header field, work with no name set. */
+(function initNameGate() {
+  let saved = '';
+  try { saved = localStorage.getItem('bookclub.who') || ''; } catch { /* ignore */ }
+  if (saved) return;
+
+  const gate = $('name-gate');
+  const input = $('name-gate-input');
+
+  function close() {
+    gate.classList.add('hidden');
+    document.removeEventListener('keydown', onKey);
+  }
+  function save() {
+    const name = input.value.trim().replace(/\s{2,}/g, ' ');
+    if (name.length < MIN_NAME) { input.focus(); return; }
+    $('who').value = name;
+    try { localStorage.setItem('bookclub.who', name); } catch { /* ignore */ }
+    close();
+    render();
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+
+  gate.classList.remove('hidden');
+  input.focus();
+  document.addEventListener('keydown', onKey);
+  gate.addEventListener('click', (e) => { if (e.target === gate) close(); });
+  $('name-gate-save').addEventListener('click', save);
+  $('name-gate-skip').addEventListener('click', close);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+})();
+
 /* --------------------------------------------------------------------- api */
 let toastTimer = null;
 function toast(msg) {

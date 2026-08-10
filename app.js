@@ -1,4 +1,4 @@
-/* Book club — static build, talks straight to Firebase Realtime Database.
+/* Good Faith Books — static build, talks straight to Firebase Realtime Database.
  *
  * No SDK, no registered web app — just fetch()/EventSource against the REST
  * API, plus the Firebase Auth REST API for anonymous sign-in. The apiKey

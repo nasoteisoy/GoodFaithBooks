@@ -1,4 +1,4 @@
-# Book Club
+# Good Faith Books
 
 A small shared shelf: suggest books to your friends, see what they suggested,
 say what you want to read next.

@@ -3,14 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<!-- connect-src covers the database and Open Library; img-src covers cover art.
-     No CDN, no SDK, no inline script or style. -->
+<!-- connect-src covers the database, Firebase Auth (anonymous sign-in + token
+     refresh, both REST — no SDK), and Open Library; img-src covers cover art.
+     No CDN, no inline script or style. -->
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none';
                script-src 'self';
                style-src 'self';
                img-src 'self' https: data:;
-               connect-src https://chummy-games-12a1d-default-rtdb.firebaseio.com https://openlibrary.org;
+               connect-src https://chummy-games-12a1d-default-rtdb.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://openlibrary.org;
                base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
 <title>Book Club</title>
 <link rel="stylesheet" href="styles.css">

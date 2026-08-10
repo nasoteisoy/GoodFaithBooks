@@ -1,16 +1,19 @@
 /* Book club — static build, talks straight to Firebase Realtime Database.
  *
- * No SDK, no apiKey, no registered web app. The REST API echoes any Origin and
- * allows every method, so plain fetch() is enough, and EventSource gives live
- * updates. Both verified against the deployed database on 2026-08-07.
+ * No SDK, no registered web app — just fetch()/EventSource against the REST
+ * API, plus the Firebase Auth REST API for anonymous sign-in. The apiKey
+ * used here is Firebase's public "Web API Key": it identifies the project,
+ * not a secret, and is meant to ship in client code — unlike an Admin SDK
+ * service-account key, which must never appear here or anywhere in this repo.
  *
- * WHERE SECURITY LIVES: in the database rules, not in this file. Every write is
- * validated server-side — title length, URL scheme, rating range, unknown
- * fields. A friend using curl gets exactly the same rejections. Treat everything
- * below as convenience, not enforcement.
+ * WHERE SECURITY LIVES: in the database rules, not in this file. Every write
+ * is validated AND, as of the ownership fix, authorized server-side against
+ * the signed-in anonymous user's auth.uid — not against a self-reported name
+ * a client could fake by copying public data. A friend using curl only gets
+ * as far as their own auth.uid lets them, same as this page.
  *
- * Rule carried over from the server build: every piece of user text reaches the
- * page through textContent. There is no innerHTML in this file.
+ * Rule carried over from the server build: every piece of user text reaches
+ * the page through textContent. There is no innerHTML in this file.
  */
 'use strict';
 
@@ -22,6 +25,15 @@
 const DB = window.BOOKCLUB_DB
         || 'https://chummy-games-12a1d-default-rtdb.firebaseio.com';
 const BOOKS = `${DB}/bookclub/books`;
+
+// Firebase's public Web API Key (Firebase Console -> Project Settings ->
+// General -> Web API Key). Safe to ship client-side: by itself it only
+// identifies the project to the Auth REST API, it grants nothing. Fill in
+// before deploying — until then, sign-in fails gracefully (see initAuth)
+// and the shelf stays read-only.
+const WEB_API_KEY = window.BOOKCLUB_API_KEY || 'AIzaSyCU-pGbrjIxzcGBjCGfX8_W-dMcqfbswRU';
+const IDENTITY = 'https://identitytoolkit.googleapis.com/v1';
+const SECURETOKEN = 'https://securetoken.googleapis.com/v1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -39,25 +51,78 @@ const state = {
   open: new Set(),
 };
 
-/* ---------------------------------------------------------------- identity
-   Same shape your games already use: a random id kept in localStorage. It is a
-   label, not a credential — anyone can set it. The rules accept it as ownerPCID,
-   so "only whoever added it can remove it" is an honest convention among friends
-   rather than an enforced guarantee. */
+/* --------------------------------------------------------------- identity
+   Real Firebase Anonymous Auth, not a self-invented random id. The rules
+   now check auth.uid before letting anyone overwrite/delete a book or write
+   someone else's vote — a client-supplied id could always be copied, since
+   the data (including that id) is fully public, so nothing short of real
+   auth can back an ownership check. The refresh token lives in localStorage
+   so the same friend keeps the same identity — and keeps owning their past
+   suggestions — across visits, with no login screen ever shown. */
 const MIN_NAME = 2;
+let idToken = null, MY_UID = null, tokenTimer = null;
 
-function pcid() {
-  const k = 'BookClub-PC-ID';
-  let id = null;
-  try { id = localStorage.getItem(k); } catch { /* private mode */ }
-  if (!id || id.length !== 12) {
-    id = Array.from({ length: 12 },
-      () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)]).join('');
-    try { localStorage.setItem(k, id); } catch { /* ignore */ }
-  }
-  return id;
+async function signInAnonymously() {
+  const r = await fetch(`${IDENTITY}/accounts:signUp?key=${WEB_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ returnSecureToken: true }),
+  });
+  if (!r.ok) throw new Error(`sign-in failed (${r.status})`);
+  return r.json(); // { idToken, refreshToken, localId, expiresIn, ... } (camelCase)
 }
-const MY_PCID = pcid();
+
+async function refreshSession(refreshToken) {
+  const r = await fetch(`${SECURETOKEN}/token?key=${WEB_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`,
+  });
+  if (!r.ok) throw new Error(`token refresh failed (${r.status})`);
+  const j = await r.json(); // snake_case fields — normalize to match signUp's shape
+  return { idToken: j.id_token, refreshToken: j.refresh_token, localId: j.user_id, expiresIn: j.expires_in };
+}
+
+function scheduleRefresh(expiresInSeconds) {
+  clearTimeout(tokenTimer);
+  // Tokens last ~1h; refresh 5 minutes early so the live connection (see
+  // resubscribe) never runs on one that's about to be rejected.
+  const ms = Math.max(30, (Number(expiresInSeconds) || 3600) - 300) * 1000;
+  tokenTimer = setTimeout(renewAuth, ms);
+}
+
+async function renewAuth() {
+  const saved = localStorage.getItem('bookclub.rt');
+  try {
+    const j = saved ? await refreshSession(saved) : await signInAnonymously();
+    idToken = j.idToken;
+    MY_UID = j.localId;
+    try { localStorage.setItem('bookclub.rt', j.refreshToken); } catch { /* private mode */ }
+    scheduleRefresh(j.expiresIn);
+    resubscribe(); // reopen the live stream with the fresh token
+    render();       // "yours" tags / vote highlighting depend on MY_UID
+    return true;
+  } catch (e) {
+    console.error(e);
+    // A saved refresh token can go bad (revoked, expired, anon account
+    // deleted) — fall back to a brand-new anonymous sign-in once rather
+    // than leaving this browser permanently stuck until someone manually
+    // clears site data.
+    if (saved) {
+      try { localStorage.removeItem('bookclub.rt'); } catch { /* ignore */ }
+      return renewAuth();
+    }
+    disableWrites(); // covers scheduled renewals too, not just the first call
+    return false;
+  }
+}
+
+function disableWrites() {
+  $('submit').disabled = true;
+  $('form-msg').textContent =
+    "Can't sign in right now, so suggesting, voting, marking, and commenting are unavailable. Browsing still works.";
+  $('form-msg').className = 'form-msg';
+}
 
 function who() { return ($('who').value || '').trim().replace(/\s{2,}/g, ' '); }
 function named() { return who().length >= MIN_NAME; }
@@ -72,6 +137,12 @@ function requireName() {
   $('who-hint').classList.remove('hidden');
   $('who').focus();
   toast('Add your name first');
+  return false;
+}
+
+function requireAuth() {
+  if (MY_UID) return true;
+  toast("Still connecting — try again in a moment.");
   return false;
 }
 
@@ -95,18 +166,20 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add('hidden'), 2800);
 }
 
-/** Rules reject malformed writes with 401. Translate that, because
- *  "Unauthorized" is misleading here — it means the data failed validation, not
- *  that you are signed out. */
+/** Rules reject malformed or unauthorized writes with 401. Translate that,
+ *  because "Unauthorized" is misleading here — it usually means the data
+ *  failed validation or you don't own the thing you're changing, not that
+ *  you're "signed out" (this app has no sign-out concept). */
 async function send(path, method, body) {
-  const r = await fetch(`${DB}/${path}.json`, {
+  const url = idToken ? `${DB}/${path}.json?auth=${idToken}` : `${DB}/${path}.json`;
+  const r = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) {
     throw new Error(r.status === 401
-      ? 'The database rejected that — check the title, your name, and any links.'
+      ? 'That was rejected — check the title, your name, any links, or that you still own this entry.'
       : `Request failed (${r.status})`);
   }
   const txt = await r.text();
@@ -135,7 +208,8 @@ function subscribe() {
     return;
   }
   try {
-    es = new EventSource(`${BOOKS}.json`);
+    const q = idToken ? `?auth=${idToken}` : '';
+    es = new EventSource(`${BOOKS}.json${q}`);
   } catch {
     return startPolling();
   }
@@ -175,6 +249,14 @@ function applyStream(ev) {
   setStatus('live');
   render();
   renderDatalists();
+}
+
+// Reopens the live stream on a fresh token after an auth renewal, rather
+// than leaving it running on one that's about to expire.
+function resubscribe() {
+  if (!es) return; // no stream open yet (e.g. ?nolive, or boot() hasn't reached subscribe() yet)
+  es.close();
+  subscribe();
 }
 
 function startPolling() {
@@ -330,16 +412,16 @@ function bookCard(b) {
   const foot = el('div', 'foot');
   const votes = votesOf(b);
   const names = Object.values(votes);
-  const mine = Object.prototype.hasOwnProperty.call(votes, MY_PCID);
+  const mine = MY_UID ? Object.prototype.hasOwnProperty.call(votes, MY_UID) : false;
   const vote = el('button', 'mini' + (mine ? ' is-on' : ''),
     (mine ? '✓ want to read' : 'want to read') + (names.length ? ' ' + names.length : ''));
   vote.type = 'button';
   vote.title = names.length ? names.join(', ') : 'nobody yet';
   vote.addEventListener('click', async () => {
-    if (!requireName()) return;
+    if (!requireName() || !requireAuth()) return;
     vote.disabled = true;
     try {
-      await send(`bookclub/books/${b.id}/votes/${MY_PCID}`, 'PUT', mine ? null : who());
+      await send(`bookclub/books/${b.id}/votes/${MY_UID}`, 'PUT', mine ? null : who());
     } catch (e) { toast(e.message); }
     vote.disabled = false;
   });
@@ -359,6 +441,7 @@ function bookCard(b) {
     b.status === 'read' ? 'mark unread' : `mark ${next[b.status] || 'reading'}`);
   mark.type = 'button';
   mark.addEventListener('click', async () => {
+    if (!requireAuth()) return;
     try { await send(`bookclub/books/${b.id}/status`, 'PUT', next[b.status] || 'reading'); }
     catch (e) { toast(e.message); }
   });
@@ -373,12 +456,11 @@ function bookCard(b) {
     foot.appendChild(a);
   }
 
-  /* No delete button, deliberately. The rules permit creating a book and never
-   * overwriting or removing one, so a shelf is append-only. That removes the
-   * whole spoofable-ownership problem — there is no permission to fake, because
-   * nobody has it. Mistakes are fixed in the Firebase console.
-   * ownerPCID survives only as provenance: a quiet marker on your own additions. */
-  if (b.ownerPCID === MY_PCID) foot.appendChild(el('span', 'yours', 'yours'));
+  /* No delete button, deliberately, and now backed by the rules too: create
+   * is the only thing the $id-level write rule allows, so the shelf really
+   * is append-only, not just append-only in the UI. ownerPCID is set to the
+   * signer's real auth.uid at creation and can't be spoofed. */
+  if (MY_UID && b.ownerPCID === MY_UID) foot.appendChild(el('span', 'yours', 'yours'));
   card.appendChild(foot);
 
   if (state.open.has(b.id)) card.appendChild(thread(b));
@@ -404,11 +486,11 @@ function thread(b) {
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const text = input.value.trim();
-    if (!text || !requireName()) return;
+    if (!text || !requireName() || !requireAuth()) return;
     post.disabled = true;
     try {
       await send(`bookclub/books/${b.id}/comments/${newId()}`, 'PUT',
-                 { by: who(), text, at: Date.now() });
+                 { by: who(), text, at: Date.now(), authorUID: MY_UID });
       input.value = '';
     } catch (e) { toast(e.message); }
     post.disabled = false;
@@ -540,6 +622,7 @@ $('form').addEventListener('submit', async (ev) => {
   if (!title) { msg.textContent = 'A title is required.'; $('f-title').focus(); return; }
   if (!requireName()) { msg.textContent = 'Add your name at the top of the page.'; return; }
   if ($('f-website').value) return;            // honeypot
+  if (!requireAuth()) { msg.textContent = 'Still connecting — try again in a moment.'; return; }
 
   // Send only fields the rules recognise: an unknown key is rejected outright.
   const book = {
@@ -553,7 +636,7 @@ $('form').addEventListener('submit', async (ev) => {
     rating: parseInt($('f-rating').value, 10) || 0,
     status: 'suggested',
     suggestedBy: who(),
-    ownerPCID: MY_PCID,
+    ownerPCID: MY_UID,
     createdAt: Date.now(),
   };
   // De-duplicate after lowercasing: "strange, Strange" is one label, not two.
@@ -587,6 +670,12 @@ $('form').addEventListener('reset', () => setTimeout(() => {
 /* -------------------------------------------------------------------- boot */
 (async function boot() {
   setStatus('connecting');
+  // Sign in/refresh in parallel with the first read, not before it: reading
+  // needs no auth (rules keep it public), so a broken/unconfigured API key
+  // should degrade to "browsing works, writing doesn't" rather than a blank
+  // page. renewAuth() disables writes itself on failure — including later
+  // scheduled renewals, not just this first call.
+  renewAuth();
   try {
     state.books = fromSnapshot(await send('bookclub/books', 'GET'));
     render(); renderDatalists();

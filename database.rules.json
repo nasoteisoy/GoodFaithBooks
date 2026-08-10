@@ -1,0 +1,79 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "players":            { ".read": true, "$pcid": { ".read": true, ".write": true } },
+    "hp_players":         { ".read": true, "$pcid": { ".read": true, ".write": true } },
+    "hp_names":           { ".read": true, "$name": { ".read": true, ".write": true } },
+    "hp_migrations":      { ".read": true, "$pcid": { ".read": true, ".write": true } },
+    "apples_players":     { ".read": true, "$pcid": { ".read": true, ".write": true } },
+    "dodgeball_players":  { ".read": true, "$pcid": { ".read": true, ".write": true } },
+
+    "hp_rooms":     { ".read": true, "$code": { ".read": true, ".write": true } },
+    "dodgeball":    { ".read": true, "$code": { ".read": true, ".write": true } },
+    "rooms":        { ".read": true, "$code": { ".read": true, ".write": true } },
+    "pacific":      { ".read": true, "$code": { ".read": true, ".write": true } },
+    "treasureHunt": { ".read": true, "$code": { ".read": true, ".write": true } },
+    "apples_rooms": { ".read": true, "$id":   { ".read": true, ".write": true } },
+
+    "tetris":        { ".read": true, "$section": { ".read": true, "$id": { ".read": true, ".write": true } } },
+    "stellar":       { ".read": true, "$section": { ".read": true, "$id": { ".read": true, ".write": true } } },
+    "showdown":      { ".read": true, "$section": { ".read": true, "$id": { ".read": true, ".write": true } } },
+    "pokeDraft":     { ".read": true, "$section": { ".read": true, "$id": { ".read": true, ".write": true } } },
+    "circleRipples": { ".read": true, "$section": { ".read": true, "$id": { ".read": true, ".write": true } } },
+
+    "world": { ".read": true, "$section": { ".read": true, "$key": { ".read": true, ".write": true } } },
+
+    "bookclub": {
+      ".read": true,
+      "books": {
+        ".read": true,
+        "$id": {
+          ".read": true,
+          ".write": "auth != null && !data.exists() && newData.child('ownerPCID').val() === auth.uid",
+          ".validate": "newData.hasChildren(['title','suggestedBy','ownerPCID','createdAt'])",
+
+          "title":       { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 300" },
+          "author":      { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "year":        { ".validate": "newData.isString() && newData.val().length <= 8" },
+          "category":    { ".validate": "newData.isString() && newData.val().length <= 60" },
+          "note":        { ".validate": "newData.isString() && newData.val().length <= 2000" },
+          "suggestedBy": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 80" },
+          "ownerPCID":   { ".validate": "newData.isString() && newData.val() === auth.uid" },
+          "cover":       { ".validate": "newData.isString() && (newData.val() == '' || (newData.val().length <= 600 && newData.val().matches(/^https?:[/][/].*/)))" },
+          "link":        { ".validate": "newData.isString() && (newData.val() == '' || (newData.val().length <= 600 && newData.val().matches(/^https?:[/][/].*/)))" },
+          "rating":      { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5" },
+          "createdAt":   { ".validate": "newData.isNumber()" },
+          "labels":      { "$i": { ".validate": "newData.isString() && newData.val().length <= 40" } },
+
+          "status": {
+            ".write": "auth != null && data.parent().exists()",
+            ".validate": "newData.isString() && newData.val().matches(/^(suggested|reading|read)$/)"
+          },
+
+          "votes": {
+            "$who": {
+              ".write": "auth != null && $who === auth.uid && data.parent().parent().exists()",
+              ".validate": "newData.isString() && newData.val().length <= 80 && $who === auth.uid"
+            }
+          },
+
+          "comments": {
+            "$cid": {
+              ".write": "auth != null && !data.exists() && data.parent().parent().exists()",
+              ".validate": "newData.hasChildren(['by','text','at','authorUID']) && newData.child('authorUID').val() === auth.uid",
+              "by":        { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 80" },
+              "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 1000" },
+              "at":        { ".validate": "newData.isNumber()" },
+              "authorUID": { ".validate": "newData.isString()" },
+              "$other": { ".validate": false }
+            }
+          },
+
+          "$other": { ".validate": false }
+        }
+      }
+    }
+  }
+}

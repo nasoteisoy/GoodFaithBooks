@@ -93,6 +93,10 @@ const linksOf = (b) => asList(b.links).length ? asList(b.links) : (b.link ? [{ u
 // the compact card and the detail page both use this for every taggable
 // field (faith, book type, category, format, series), per the user's ask
 // that this behavior be consistent everywhere, not just on series.
+function seriesLabel(b) {
+  return `📚 ${b.series}${b.seriesNumber ? ' #' + b.seriesNumber : ''}`;
+}
+
 function filterTag(cls, text, filterSet, value) {
   const t = el('button', cls, text);
   t.type = 'button';
@@ -708,7 +712,7 @@ function bookCard(b) {
   body.appendChild(titleEl);
   const bits = [b.author, b.bookType].filter(Boolean).join(' · ');
   if (bits) body.appendChild(el('p', 'byline', bits));
-  if (b.series) body.appendChild(filterTag('series-tag', `📚 ${b.series}`, state.series, b.series));
+  if (b.series) body.appendChild(filterTag('series-tag', seriesLabel(b), state.series, b.series));
   const ratingCount = ratingsOf(b).length;
   if (ratingCount) {
     body.appendChild(el('div', 'stars',
@@ -858,18 +862,9 @@ function bookFooter(b, opts = {}) {
 
   if (MY_UID && b.ownerPCID === MY_UID) foot.appendChild(el('span', 'yours', 'yours'));
 
-  // Anyone signed in can edit any book — a deliberate, collaborative-wiki
-  // choice (this is a small trusted group), not a bug. The delete button
-  // below is shown only with ?admin in the URL (see the ADMIN_UI comment
-  // near the top of this file), but the rules don't actually check for
-  // that — anyone signed in can delete, same as edit.
-  if (opts.showEdit && MY_UID) {
-    const editBtn = el('button', 'mini primary', 'edit');
-    editBtn.type = 'button';
-    editBtn.addEventListener('click', () => startEdit(b));
-    foot.appendChild(editBtn);
-  }
-
+  // Anyone signed in can delete — the button below is shown only with
+  // ?admin in the URL (see the ADMIN_UI comment near the top of this
+  // file), but the rules don't actually check for that.
   if (ADMIN_UI) {
     const del = el('button', 'mini danger', 'delete');
     del.type = 'button';
@@ -891,8 +886,9 @@ function bookFooter(b, opts = {}) {
 }
 
 // The full detail page for one book — everything the compact card hides
-// behind "more info" is always shown here, plus the edit button (owner) and
-// an always-open comment thread instead of a toggle.
+// behind "more info" is always shown here, plus an edit button up top
+// (next to the title, not buried in the footer) and an always-open
+// comment thread instead of a toggle.
 function renderDetail(b) {
   const box = $('detail-content');
   box.replaceChildren();
@@ -902,10 +898,20 @@ function renderDetail(b) {
   box.appendChild(cover);
 
   const body = el('div', 'body detail-body');
-  body.appendChild(el('h2', 'title', b.title));
+
+  const head = el('div', 'detail-head');
+  head.appendChild(el('h2', 'title', b.title));
+  if (MY_UID) {
+    const editBtn = el('button', 'mini primary', 'edit');
+    editBtn.type = 'button';
+    editBtn.addEventListener('click', () => startEdit(b));
+    head.appendChild(editBtn);
+  }
+  body.appendChild(head);
+
   const bits = [b.author, b.bookType].filter(Boolean).join(' · ');
   if (bits) body.appendChild(el('p', 'byline', bits));
-  if (b.series) body.appendChild(filterTag('series-tag', `📚 ${b.series}`, state.series, b.series));
+  if (b.series) body.appendChild(filterTag('series-tag', seriesLabel(b), state.series, b.series));
 
   const ratingCount = ratingsOf(b).length;
   if (ratingCount) {
@@ -965,7 +971,7 @@ function renderDetail(b) {
   if (who1) body.appendChild(who1);
 
   body.appendChild(el('p', 'meta', 'suggested by ' + (b.suggestedBy || 'someone')));
-  body.appendChild(bookFooter(b, { showEdit: true }));
+  body.appendChild(bookFooter(b));
   body.appendChild(thread(b));
 
   box.appendChild(body);
@@ -1146,6 +1152,9 @@ $('form').addEventListener('submit', async (ev) => {
   if (other) categories.push(other);
   const links = linkRowValues();
   const series = $('f-series').value.trim();
+  // A number without a series name is meaningless to display, so drop it
+  // rather than store an orphaned value.
+  const seriesNumber = series ? parseInt($('f-series-number').value, 10) || null : null;
   const cover = $('f-cover').value.trim();
   const warnings = $('f-warnings').value.trim();
 
@@ -1163,6 +1172,7 @@ $('form').addEventListener('submit', async (ev) => {
         categories: categories.length ? categories : null,
         links: links.length ? links : null,
         series: series || null,
+        seriesNumber,
       };
       await send(`bookclub/books/${editingId}`, 'PATCH', patch);
       toast(`Saved changes to “${title}”`);
@@ -1183,6 +1193,7 @@ $('form').addEventListener('submit', async (ev) => {
       if (categories.length) book.categories = categories;
       if (links.length) book.links = links;
       if (series) book.series = series;
+      if (seriesNumber) book.seriesNumber = seriesNumber;
       await send(`bookclub/books/${newId()}`, 'PUT', book);
       toast(`Added “${title}”`);
     }
@@ -1207,6 +1218,7 @@ function startEdit(b) {
   $('f-title').value = b.title || '';
   $('f-author').value = b.author || '';
   $('f-series').value = b.series || '';
+  $('f-series-number').value = b.seriesNumber || '';
   $('f-cover').value = b.cover || '';
   updatePreview();
 

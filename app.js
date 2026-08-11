@@ -261,8 +261,11 @@ async function send(path, method, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) {
+    // send() is shared by every write in the app (create, vote, like, rate,
+    // comment, mark status, delete) — the message has to make sense for all
+    // of them, not just book creation.
     throw new Error(r.status === 401
-      ? 'That was rejected — check the title, your name, any links, or that you still own this entry.'
+      ? "That was rejected — either the site isn't fully set up yet, or you don't have permission for this action."
       : `Request failed (${r.status})`);
   }
   const txt = await r.text();
@@ -614,7 +617,7 @@ function bookCard(b) {
   const likeCount = Object.keys(likes).length;
   const iLike = MY_UID ? Object.prototype.hasOwnProperty.call(likes, MY_UID) : false;
   const like = el('button', 'mini like' + (iLike ? ' is-on' : ''),
-    (iLike ? '♥' : '♡') + (likeCount ? ' ' + likeCount : ''));
+    (iLike ? '♥' : '♡') + ' ' + likeCount);
   like.type = 'button';
   like.title = iLike ? 'Unlike' : 'Like';
   like.addEventListener('click', async () => {

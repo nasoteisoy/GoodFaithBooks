@@ -415,9 +415,24 @@ function filterSelect(title, entries, set) {
 }
 
 const votesOf = (b) => (b.votes && typeof b.votes === 'object' ? b.votes : {});
+const likesOf = (b) => (b.likes && typeof b.likes === 'object' ? b.likes : {});
 const commentsOf = (b) =>
   Object.entries(b.comments || {}).map(([id, c]) => ({ id, ...c }))
     .sort((x, y) => (x.at || 0) - (y.at || 0));
+
+// Ratings are per-person (bookclub/books/$id/ratings/$who, 1-10), seeded
+// with the submitter's own rating at creation time. The average is what's
+// actually shown, so "highest rated" reflects everyone, not just whoever
+// suggested it. Older books from before this feature only have the flat
+// `rating` field — fall back to that as a single-vote average.
+function ratingsOf(b) {
+  const r = b.ratings && typeof b.ratings === 'object' ? Object.values(b.ratings) : [];
+  return r.length ? r : (b.rating ? [b.rating] : []);
+}
+const avgRating = (b) => {
+  const r = ratingsOf(b);
+  return r.length ? r.reduce((s, v) => s + v, 0) / r.length : 0;
+};
 
 function renderFilters() {
   const box = $('filters');
@@ -464,7 +479,7 @@ function visible() {
     title:  (a, b) => (a.title || '').localeCompare(b.title || ''),
     author: (a, b) => (a.author || '~').localeCompare(b.author || '~'),
     votes:  (a, b) => Object.keys(votesOf(b)).length - Object.keys(votesOf(a)).length,
-    rating: (a, b) => (b.rating || 0) - (a.rating || 0),
+    rating: (a, b) => avgRating(b) - avgRating(a),
   }[state.sort];
   return out.sort(by);
 }
@@ -496,7 +511,11 @@ function bookCard(b) {
   body.appendChild(el('h3', 'title', b.title));
   const bits = [b.author, b.bookType].filter(Boolean).join(' · ');
   if (bits) body.appendChild(el('p', 'byline', bits));
-  if (b.rating > 0) body.appendChild(el('div', 'stars', `★ ${b.rating}/10`));
+  const ratingCount = ratingsOf(b).length;
+  if (ratingCount) {
+    body.appendChild(el('div', 'stars',
+      `★ ${avgRating(b).toFixed(1)}/10 (${ratingCount} rating${ratingCount === 1 ? '' : 's'})`));
+  }
 
   const tags = el('div', 'labels');
   if (b.faith) tags.appendChild(el('span', 'tag cat', b.faith));
@@ -538,6 +557,36 @@ function bookCard(b) {
       body.appendChild(f);
     }
 
+    // Anyone signed in can add or change their own rating — the average
+    // shown above updates live for every visitor via the normal subscription.
+    if (MY_UID) {
+      const myRating = b.ratings && b.ratings[MY_UID];
+      const rateRow = el('div', 'rate-row');
+      rateRow.appendChild(el('span', 'rate-label', myRating ? `Your rating: ${myRating}/10` : 'Rate this book'));
+      const rateSelect = el('select', 'select');
+      const blank = el('option', null, '–'); blank.value = '';
+      rateSelect.appendChild(blank);
+      for (let i = 1; i <= 10; i++) {
+        const o = el('option', null, String(i));
+        o.value = String(i);
+        if (myRating === i) o.selected = true;
+        rateSelect.appendChild(o);
+      }
+      const rateBtn = el('button', 'mini', myRating ? 'update' : 'rate');
+      rateBtn.type = 'button';
+      rateBtn.addEventListener('click', async () => {
+        const val = parseInt(rateSelect.value, 10);
+        if (!val || !requireAuth()) return;
+        rateBtn.disabled = true;
+        try {
+          await send(`bookclub/books/${b.id}/ratings/${MY_UID}`, 'PUT', val);
+        } catch (e) { toast(e.message); }
+        rateBtn.disabled = false;
+      });
+      rateRow.append(rateSelect, rateBtn);
+      body.appendChild(rateRow);
+    }
+
     body.appendChild(el('p', 'meta', 'suggested by ' + (b.suggestedBy || 'someone')));
   }
 
@@ -560,6 +609,23 @@ function bookCard(b) {
     vote.disabled = false;
   });
   foot.appendChild(vote);
+
+  const likes = likesOf(b);
+  const likeCount = Object.keys(likes).length;
+  const iLike = MY_UID ? Object.prototype.hasOwnProperty.call(likes, MY_UID) : false;
+  const like = el('button', 'mini like' + (iLike ? ' is-on' : ''),
+    (iLike ? '♥' : '♡') + (likeCount ? ' ' + likeCount : ''));
+  like.type = 'button';
+  like.title = iLike ? 'Unlike' : 'Like';
+  like.addEventListener('click', async () => {
+    if (!requireAuth()) return;
+    like.disabled = true;
+    try {
+      await send(`bookclub/books/${b.id}/likes/${MY_UID}`, 'PUT', iLike ? null : true);
+    } catch (e) { toast(e.message); }
+    like.disabled = false;
+  });
+  foot.appendChild(like);
 
   const cN = commentsOf(b).length;
   const talk = el('button', 'mini', cN ? `comments ${cN}` : 'comment');
@@ -639,8 +705,13 @@ function thread(b) {
     box.appendChild(p);
   }
   const form = el('form', 'cmt-form');
-  const input = el('input');
-  input.type = 'text'; input.maxLength = 1000; input.placeholder = 'Say something…';
+  const input = el('textarea');
+  input.maxLength = 1000; input.rows = 2; input.placeholder = 'Say something…';
+  // Enter submits, Shift+Enter makes a new line — a plain textarea would
+  // otherwise trap Enter as a newline with no obvious way to send.
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+  });
   const post = el('button', 'mini', 'Post');
   post.type = 'submit';
   form.append(input, post);
@@ -796,6 +867,10 @@ $('form').addEventListener('submit', async (ev) => {
     link: $('f-link').value.trim(),
     warnings: $('f-warnings').value.trim(),
     rating,
+    // Seeds the shared ratings pool with the submitter's own score, so
+    // "average rating" starts out equal to what they gave it rather than 0
+    // before anyone else has rated it.
+    ratings: { [MY_UID]: rating },
     status: 'suggested',
     suggestedBy: who(),
     ownerPCID: MY_UID,

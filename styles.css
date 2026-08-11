@@ -1,17 +1,20 @@
-/* Good Faith Books. Warm paper by day, deep library by night. */
+/* Good Faith Books. Sunlit and joyful — marigold and sky-blue over bright
+   cream by day, the same warmth glowing against a starry twilight by night. */
 
 :root {
-  --bg:#f6f2ea; --card:#fffdf9; --ink:#241f19; --soft:#6d6357; --faint:#9b9285;
-  --line:#e2d9c9; --accent:#8a5a34; --accent-2:#d9a441; --accent-ink:#fff8f0; --chip:#efe7d8;
-  --good:#3f7d54; --warn:#a8452f; --shadow:0 1px 2px rgba(60,45,25,.07), 0 8px 24px -12px rgba(60,45,25,.18);
-  --shadow-lift:0 2px 4px rgba(60,45,25,.1), 0 20px 34px -14px rgba(60,45,25,.32);
+  --bg:#fff8ec; --card:#ffffff; --ink:#2c2415; --soft:#6e6350; --faint:#a89b7e;
+  --line:#f2e2bd; --accent:#f2941f; --accent-2:#35b7c4; --accent-ink:#fffaf2; --chip:#fff1d6;
+  --good:#2fa563; --warn:#e0524a; --like:#ef5da8;
+  --shadow:0 1px 2px rgba(200,120,20,.08), 0 8px 24px -12px rgba(200,120,20,.2);
+  --shadow-lift:0 2px 4px rgba(200,120,20,.12), 0 20px 34px -14px rgba(200,120,20,.34);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:#14120f; --card:#1d1a16; --ink:#ece5da; --soft:#a49a8c; --faint:#726960;
-    --line:#302b24; --accent:#c98b56; --accent-2:#f0c987; --accent-ink:#1a1512; --chip:#292420;
-    --good:#6cb185; --warn:#e0806a; --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.7);
-    --shadow-lift:0 2px 6px rgba(0,0,0,.4), 0 22px 40px -14px rgba(0,0,0,.85);
+    --bg:#1c1733; --card:#2a2348; --ink:#f7f0e3; --soft:#c3b8dd; --faint:#8f83b0;
+    --line:#3c3564; --accent:#ffab3d; --accent-2:#4fd8e8; --accent-ink:#241200; --chip:#352a52;
+    --good:#6fe0a0; --warn:#ff8a7a; --like:#ff85c2;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 30px -14px rgba(0,0,0,.75);
+    --shadow-lift:0 2px 6px rgba(0,0,0,.45), 0 22px 40px -14px rgba(0,0,0,.9);
   }
 }
 
@@ -20,8 +23,8 @@ html { -webkit-text-size-adjust:100% }
 body {
   margin:0; min-height:100vh; color:var(--ink);
   background:
-    radial-gradient(1100px 480px at 12% -8%, color-mix(in srgb, var(--accent-2) 14%, transparent), transparent),
-    radial-gradient(900px 460px at 108% 8%, color-mix(in srgb, var(--accent) 10%, transparent), transparent),
+    radial-gradient(1100px 480px at 12% -8%, color-mix(in srgb, var(--accent-2) 20%, transparent), transparent),
+    radial-gradient(900px 460px at 108% 8%, color-mix(in srgb, var(--accent) 18%, transparent), transparent),
     var(--bg);
   font:16px/1.6 ui-serif, Georgia, "Iowan Old Style", Palatino, serif;
   padding-bottom:64px;
@@ -200,18 +203,32 @@ h1 { margin:0; font-size:clamp(22px,3.4vw,30px); letter-spacing:.01em; font-weig
 .mini:active { transform:scale(.96) }
 .mini.is-on { color:var(--accent-ink); background:var(--accent); border-color:var(--accent) }
 .mini.danger:hover { color:var(--warn); border-color:var(--warn) }
+.mini.like:hover { color:var(--like); border-color:var(--like) }
+.mini.like.is-on { color:#fff; background:var(--like); border-color:var(--like) }
 .spacer { flex:1 }
+
+.rate-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap }
+.rate-label { font:600 12.5px/1 ui-sans-serif,system-ui,sans-serif; color:var(--soft) }
+.rate-row select { width:auto; padding:6px 8px }
 .ext { font:12.5px/1 ui-sans-serif,system-ui,sans-serif; color:var(--faint); text-decoration:none }
 .ext:hover { color:var(--accent); text-decoration:underline }
 
 /* ----------------------------------------------------------- comments */
-.thread { border-top:1px solid var(--line); padding:12px 15px; display:flex;
+/* .book is a 2-column CSS grid (cover | content); without an explicit
+   placement here, grid auto-placement drops this third child into the next
+   free cell — the narrow 96px cover column — instead of spanning full width.
+   That's what was making the comment box look tiny. */
+.thread { grid-column:1 / -1; border-top:1px solid var(--line); padding:12px 15px; display:flex;
           flex-direction:column; gap:10px }
 .cmt { font-size:14px; line-height:1.5 }
 .cmt b { font-weight:600; font-family:ui-sans-serif,system-ui,sans-serif; font-size:12.5px;
          color:var(--accent); margin-right:6px }
-.cmt-form { display:flex; gap:6px }
-.cmt-form input { flex:1; font-size:14px; padding:8px 11px }
+.cmt-form { display:flex; gap:6px; align-items:flex-end }
+.cmt-form textarea {
+  flex:1; font:16px/1.4 ui-sans-serif,system-ui,sans-serif; padding:9px 11px;
+  resize:vertical; min-height:40px;
+}
+.cmt-form .mini { flex:0 0 auto }
 .no-cmt { font:13px/1 ui-sans-serif,system-ui,sans-serif; color:var(--faint) }
 
 .empty { text-align:center; padding:60px 20px; color:var(--faint);
@@ -309,6 +326,13 @@ textarea { resize:vertical; font-family:ui-serif,Georgia,serif; font-size:15.5px
   .book { grid-template-columns:72px 1fr }
   .field.narrow { flex:1 1 100% }
   .note { font-size:13.5px }
+
+  /* iOS Safari zooms the whole page in when focusing any text control under
+     16px — force 16px here so tapping a field doesn't yank the viewport. */
+  input, select, textarea { font-size:16px; }
+
+  .cmt-form { flex-direction:column; align-items:stretch }
+  .cmt-form .mini { align-self:flex-end; padding:9px 16px }
 }
 
 /* ------------------------------------------------- static build additions */

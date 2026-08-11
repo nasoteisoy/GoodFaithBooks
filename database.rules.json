@@ -63,6 +63,20 @@
             }
           },
 
+          "likes": {
+            "$who": {
+              ".write": "auth != null && $who === auth.uid && data.parent().parent().exists()",
+              ".validate": "newData.isBoolean() && $who === auth.uid"
+            }
+          },
+
+          "ratings": {
+            "$who": {
+              ".write": "auth != null && $who === auth.uid && data.parent().parent().exists()",
+              ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10 && $who === auth.uid"
+            }
+          },
+
           "comments": {
             "$cid": {
               ".write": "auth != null && !data.exists() && data.parent().parent().exists()",

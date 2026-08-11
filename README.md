@@ -28,10 +28,12 @@ public, so nothing short of real auth could back an ownership check. Now:
 - Only the original submitter's signed-in identity can ever match a book's
   `ownerPCID` at creation time. After that, though, any signed-in friend can
   edit or delete any book — a deliberate choice for this small trusted group,
-  not an oversight. The `?admin` toggle in the header only shows/hides the
-  delete button in the UI; the rules behind it don't check for `?admin` at
-  all (they can't — rules never see the URL), so it's a convenience, not a
-  security boundary.
+  not an oversight. Adding `?admin` to the URL shows the delete button in
+  the UI — deliberately with no in-app toggle or hint, so it's only found
+  by people told about it directly. The rules behind it don't check for
+  `?admin` at all (they can't — rules never see the URL), so it's a
+  convenience, not a security boundary; anyone signed in could in
+  principle delete via the raw API even without it.
 - Voting is keyed by your own real identity, so nobody can cast or erase
   someone else's vote.
 - Comments are create-only per id, and stamped with `authorUID`, so nobody

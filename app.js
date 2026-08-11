@@ -35,13 +35,14 @@ const WEB_API_KEY = window.BOOKCLUB_API_KEY || 'AIzaSyCU-pGbrjIxzcGBjCGfX8_W-dMc
 const IDENTITY = 'https://identitytoolkit.googleapis.com/v1';
 const SECURETOKEN = 'https://securetoken.googleapis.com/v1';
 
-/* ?admin in the URL (or the header toggle) reveals the delete button in the
-   UI. By deliberate choice there is no allowlist behind it: the database
-   rules allow anyone signed in to delete any book, same as edit — this
-   community is small and trusted enough that the tradeoff was "no ID
-   management" over "restricted to specific people." Deliberately `let`,
-   not `const`: the header toggle flips it live, no reload needed. */
-let ADMIN_UI = new URLSearchParams(location.search).has('admin');
+/* ?admin in the URL reveals the delete button in the UI — deliberately not
+   discoverable any other way (no header toggle, no on-page hint). The only
+   people who know it exists are the ones told directly. By deliberate
+   choice there is no allowlist behind it: the database rules allow anyone
+   signed in to delete any book, same as edit — this community is small
+   and trusted enough that the tradeoff was "no ID management" over
+   "restricted to specific people." */
+const ADMIN_UI = new URLSearchParams(location.search).has('admin');
 
 const $ = (id) => document.getElementById(id);
 
@@ -859,9 +860,9 @@ function bookFooter(b, opts = {}) {
 
   // Anyone signed in can edit any book — a deliberate, collaborative-wiki
   // choice (this is a small trusted group), not a bug. The delete button
-  // below is shown/hidden by ADMIN_UI (the ?admin toggle), but the rules
-  // don't actually check for that — anyone signed in can delete, same as
-  // edit. See the ADMIN_UI comment near the top of this file for why.
+  // below is shown only with ?admin in the URL (see the ADMIN_UI comment
+  // near the top of this file), but the rules don't actually check for
+  // that — anyone signed in can delete, same as edit.
   if (opts.showEdit && MY_UID) {
     const editBtn = el('button', 'mini primary', 'edit');
     editBtn.type = 'button';
@@ -1268,27 +1269,6 @@ function jumpToSharedBookIfNeeded() {
 $('form').addEventListener('reset', () => setTimeout(() => {
   updatePreview(); $('form-msg').textContent = '';
 }, 0));
-
-// A visible, discoverable way to turn on admin tools instead of requiring
-// someone to already know to type ?admin in the address bar. Flips ADMIN_UI
-// live (no reload) and updates the URL so the state survives a refresh/share.
-function updateAdminToggle() {
-  $('admin-toggle').classList.toggle('is-on', ADMIN_UI);
-  $('admin-toggle').textContent = ADMIN_UI ? '⚙ admin tools: on' : '⚙ admin tools';
-}
-$('admin-toggle').addEventListener('click', () => {
-  ADMIN_UI = !ADMIN_UI;
-  const url = new URL(location.href);
-  if (ADMIN_UI) url.searchParams.set('admin', ''); else url.searchParams.delete('admin');
-  history.replaceState({}, '', url);
-  updateAdminToggle();
-  render();
-  if (state.viewingId) {
-    const b = state.books.find(x => x.id === state.viewingId);
-    if (b) renderDetail(b);
-  }
-});
-updateAdminToggle();
 
 /* -------------------------------------------------------------------- boot */
 (async function boot() {

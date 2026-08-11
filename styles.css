@@ -69,15 +69,6 @@ h1 { margin:0; font-size:clamp(22px,3.4vw,30px); letter-spacing:.01em; font-weig
   border:1px solid var(--line); border-radius:8px;
 }
 .who input:focus-visible { outline:2px solid var(--accent); outline-offset:1px }
-.admin-toggle {
-  font:600 11.5px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing:.04em;
-  padding:7px 11px; border-radius:99px; border:1px solid var(--line);
-  background:none; color:var(--faint); cursor:pointer; align-self:center;
-  transition:color .15s ease, border-color .15s ease, background-color .15s ease;
-}
-.admin-toggle:hover { color:var(--soft); border-color:var(--soft) }
-.admin-toggle.is-on { color:var(--accent-ink); background:var(--accent); border-color:var(--accent) }
-
 .who-list { display:flex; flex-direction:column; gap:3px }
 .who-line { font:12.5px/1.5 ui-sans-serif,system-ui,sans-serif; color:var(--soft); margin:0 }
 .who-line b { font-weight:600; color:var(--ink) }

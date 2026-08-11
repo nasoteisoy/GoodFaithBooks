@@ -57,7 +57,7 @@ const state = {
   q: '', sort: 'new',
   bookType: new Set(), faith: new Set(), categories: new Set(), format: new Set(),
   person: new Set(), status: new Set(),
-  open: new Set(),
+  open: new Set(), expanded: new Set(),
 };
 
 // RTDB returns a dense array as-is but a sparse one as an object — accept both.
@@ -503,21 +503,8 @@ function bookCard(b) {
   for (const c of categoriesOf(b)) tags.appendChild(el('span', 'tag', c));
   if (tags.childElementCount) body.appendChild(tags);
 
-  if (b.description) body.appendChild(el('p', 'note', b.description));
-  if (b.note) {
-    const why = el('p', 'note why');
-    why.appendChild(el('b', null, 'Why recommend it: '));
-    why.appendChild(document.createTextNode(b.note));
-    body.appendChild(why);
-  }
-
-  const formats = asList(b.formats);
-  if (formats.length) {
-    const f = el('div', 'labels');
-    for (const fmt of formats) f.appendChild(el('span', 'tag', fmt));
-    body.appendChild(f);
-  }
-
+  // Warnings stay visible even collapsed — the whole point of them is that
+  // nobody should have to dig for a content note before picking a book.
   if (b.warnings) {
     const w = el('p', 'warn-note');
     w.appendChild(el('b', null, '⚠ '));
@@ -525,7 +512,35 @@ function bookCard(b) {
     body.appendChild(w);
   }
 
-  body.appendChild(el('p', 'meta', 'suggested by ' + (b.suggestedBy || 'someone')));
+  const expanded = state.expanded.has(b.id);
+  const more = el('button', 'more-toggle', expanded ? 'less info ▲' : 'more info ▼');
+  more.type = 'button';
+  more.setAttribute('aria-expanded', String(expanded));
+  more.addEventListener('click', () => {
+    state.expanded.has(b.id) ? state.expanded.delete(b.id) : state.expanded.add(b.id);
+    render();
+  });
+  body.appendChild(more);
+
+  if (expanded) {
+    if (b.description) body.appendChild(el('p', 'note', b.description));
+    if (b.note) {
+      const why = el('p', 'note why');
+      why.appendChild(el('b', null, 'Why recommend it: '));
+      why.appendChild(document.createTextNode(b.note));
+      body.appendChild(why);
+    }
+
+    const formats = asList(b.formats);
+    if (formats.length) {
+      const f = el('div', 'labels');
+      for (const fmt of formats) f.appendChild(el('span', 'tag', fmt));
+      body.appendChild(f);
+    }
+
+    body.appendChild(el('p', 'meta', 'suggested by ' + (b.suggestedBy || 'someone')));
+  }
+
   card.appendChild(body);
 
   const foot = el('div', 'foot');
@@ -670,6 +685,12 @@ function render() {
 
 $('q').addEventListener('input', e => { state.q = e.target.value; render(); });
 $('sort').addEventListener('change', e => { state.sort = e.target.value; render(); });
+
+$('filters-toggle').addEventListener('click', () => {
+  const open = $('filters').classList.toggle('open');
+  $('filters-toggle').setAttribute('aria-expanded', String(open));
+  $('filters-toggle').querySelector('.chevron').textContent = open ? '▾' : '▸';
+});
 
 /* --------------------------------------------------- open library lookup
    Called straight from the browser: openlibrary.org sends

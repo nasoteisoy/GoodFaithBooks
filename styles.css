@@ -87,14 +87,33 @@ h1 { margin:0; font-size:clamp(22px,3.4vw,30px); letter-spacing:.01em; font-weig
 .select { cursor:pointer }
 :focus-visible { outline:2px solid var(--accent); outline-offset:1px }
 
-.filters { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px }
+/* Filters live in a collapsed sidebar, not an always-visible row — opened
+   via the toolbar's arrow button, not shown by default. Animating width
+   instead of toggling display:none/flex is what makes the open/close
+   actually slide instead of just snapping. */
+.browse-layout { display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap }
+.browse-main { flex:1 1 320px; min-width:0 }
+.filters {
+  flex:0 0 auto; width:0; opacity:0; overflow:hidden; padding:0; margin:0; border:none;
+  display:flex; flex-direction:column; gap:16px;
+  transition:width .25s ease, opacity .2s ease, padding .25s ease;
+}
+.filters.open {
+  width:200px; opacity:1; padding:16px; border:1px solid var(--line);
+  border-radius:12px; background:var(--card);
+}
+@media (max-width:560px) {
+  .filters.open { width:100%; box-sizing:border-box }
+}
 .filter-field { display:flex; flex-direction:column; gap:5px }
 .filter-field select {
-  min-width:150px; max-width:220px; cursor:pointer;
+  width:100%; cursor:pointer;
   transition:border-color .15s ease;
 }
 .filter-field select:focus-visible { outline:2px solid var(--accent); outline-offset:1px }
 .filter-field select option { padding:3px 4px }
+.filters-toggle { display:inline-flex; align-items:center; gap:6px }
+.filters-toggle .chevron { display:inline-block; font-size:11px }
 .chip {
   font:500 12.5px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing:.02em;
   padding:7px 12px; border-radius:99px; border:1px solid var(--line);
@@ -152,6 +171,11 @@ h1 { margin:0; font-size:clamp(22px,3.4vw,30px); letter-spacing:.01em; font-weig
 .note { font-size:14.5px; line-height:1.55; color:var(--ink); margin:0 }
 .note.why { font-style:italic; color:var(--soft) }
 .note.why b { font-style:normal; font-weight:600; color:var(--ink) }
+.more-toggle {
+  align-self:flex-start; border:none; background:none; padding:2px 0;
+  font:600 12.5px/1 ui-sans-serif,system-ui,sans-serif; color:var(--accent); cursor:pointer;
+}
+.more-toggle:hover { text-decoration:underline }
 .warn-note {
   font-size:13px; line-height:1.5; margin:0; padding:8px 10px; border-radius:8px;
   background:color-mix(in srgb, var(--warn) 10%, transparent);

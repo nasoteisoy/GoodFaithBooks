@@ -62,12 +62,19 @@
       <option value="votes">Most wanted</option>
       <option value="rating">Highest rated</option>
     </select>
+    <button type="button" id="filters-toggle" class="btn filters-toggle" aria-expanded="false" aria-controls="filters">
+      <span class="chevron">▸</span> Filters
+    </button>
   </div>
 
-  <div id="filters" class="filters"></div>
-  <p id="count" class="count"></p>
-  <div id="grid" class="grid"></div>
-  <div id="empty" class="empty hidden"></div>
+  <div class="browse-layout">
+    <aside id="filters" class="filters"></aside>
+    <div class="browse-main">
+      <p id="count" class="count"></p>
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty hidden"></div>
+    </div>
+  </div>
 </main>
 
 <!-- --------------------------------------------------------------- ADD -->

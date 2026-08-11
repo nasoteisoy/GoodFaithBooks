@@ -208,11 +208,6 @@ h1 { margin:0; font-size:clamp(22px,3.4vw,30px); letter-spacing:.01em; font-weig
 .note { font-size:14.5px; line-height:1.55; color:var(--ink); margin:0 }
 .note.why { font-style:italic; color:var(--soft) }
 .note.why b { font-style:normal; font-weight:600; color:var(--ink) }
-.more-toggle {
-  align-self:flex-start; border:none; background:none; padding:2px 0;
-  font:600 12.5px/1 ui-sans-serif,system-ui,sans-serif; color:var(--accent); cursor:pointer;
-}
-.more-toggle:hover { text-decoration:underline }
 .warn-note {
   font-size:13px; line-height:1.5; margin:0; padding:8px 10px; border-radius:8px;
   background:color-mix(in srgb, var(--warn) 10%, transparent);

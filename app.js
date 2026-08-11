@@ -58,7 +58,7 @@ const state = {
   q: '', sort: 'rating',
   bookType: new Set(), faith: new Set(), categories: new Set(), format: new Set(), series: new Set(),
   person: new Set(), status: new Set(),
-  open: new Set(), expanded: new Set(),
+  open: new Set(),
   editingId: null, // set while the add/suggest form is actually editing an existing owned book
 };
 
@@ -719,71 +719,9 @@ function bookCard(b) {
       `★ ${avgRating(b).toFixed(1)}/10 (${ratingCount} rating${ratingCount === 1 ? '' : 's'})`));
   }
 
-  const tags = el('div', 'labels');
-  if (b.faith) tags.appendChild(filterTag('tag cat', b.faith, state.faith, b.faith));
-  for (const c of categoriesOf(b)) tags.appendChild(filterTag('tag', c, state.categories, c));
-  if (tags.childElementCount) body.appendChild(tags);
-
-  const expanded = state.expanded.has(b.id);
-  const more = el('button', 'more-toggle', expanded ? 'less info ▲' : 'more info ▼');
-  more.type = 'button';
-  more.setAttribute('aria-expanded', String(expanded));
-  more.addEventListener('click', () => {
-    state.expanded.has(b.id) ? state.expanded.delete(b.id) : state.expanded.add(b.id);
-    render();
-  });
-  body.appendChild(more);
-
-  if (expanded) {
-    if (b.note) {
-      const why = el('p', 'note why');
-      why.appendChild(el('b', null, 'Why recommend it: '));
-      why.appendChild(document.createTextNode(b.note));
-      body.appendChild(why);
-    }
-    if (b.description) body.appendChild(el('p', 'note', b.description));
-    if (b.warnings) {
-      const w = el('p', 'warn-note');
-      w.appendChild(el('b', null, '⚠ '));
-      w.appendChild(document.createTextNode(b.warnings));
-      body.appendChild(w);
-    }
-
-    const formats = asList(b.formats);
-    if (formats.length) {
-      const f = el('div', 'labels');
-      for (const fmt of formats) f.appendChild(filterTag('tag', fmt, state.format, fmt));
-      body.appendChild(f);
-    }
-
-    const links = linksOf(b);
-    if (links.length) {
-      const linkList = el('div', 'link-list');
-      for (const l of links) {
-        const row = el('div', 'link-item');
-        // Same javascript:-URI guard as everywhere else user text becomes a
-        // clickable href: only a real http(s) URL gets to be an <a>.
-        if (/^https?:\/\//i.test((l.url || '').trim())) {
-          const a = el('a', 'ext', l.desc || l.url);
-          a.href = l.url.trim();
-          a.target = '_blank'; a.rel = 'noopener noreferrer';
-          row.appendChild(a);
-        } else if (l.desc || l.url) {
-          row.appendChild(el('span', 'ext', l.desc || l.url));
-        }
-        if (row.childElementCount) linkList.appendChild(row);
-      }
-      if (linkList.childElementCount) body.appendChild(linkList);
-    }
-
-    // Anyone signed in can add or change their own rating — the average
-    // shown above updates live for every visitor via the normal subscription.
-    const rw1 = ratingWidget(b);
-    if (rw1) body.appendChild(rw1);
-
-    body.appendChild(el('p', 'meta', 'suggested by ' + (b.suggestedBy || 'someone')));
-  }
-
+  // Everything else — tags, why-recommend, description, warnings, formats,
+  // links, the rating widget, "suggested by" — lives on the detail page
+  // only now. The card stays minimal; click the title or cover to see it.
   card.appendChild(body);
   card.appendChild(bookFooter(b, { includeCommentToggle: true }));
   if (state.open.has(b.id)) card.appendChild(thread(b));
@@ -885,10 +823,10 @@ function bookFooter(b, opts = {}) {
   return foot;
 }
 
-// The full detail page for one book — everything the compact card hides
-// behind "more info" is always shown here, plus an edit button up top
-// (next to the title, not buried in the footer) and an always-open
-// comment thread instead of a toggle.
+// The full detail page for one book — everything the compact card leaves
+// out (tags, why-recommend, description, warnings, formats, links, rating
+// widget) lives here, plus an edit button up top and an always-open
+// comment thread.
 function renderDetail(b) {
   const box = $('detail-content');
   box.replaceChildren();
@@ -1066,6 +1004,19 @@ function fillFrom(hit) {
   const firstUrlInput = $('link-rows').querySelector('.link-row input');
   if (hit.link && firstUrlInput && !firstUrlInput.value) firstUrlInput.value = hit.link;
   closeSuggest(); updatePreview(); $('f-description').focus();
+  if (hit.link) fillDescriptionFrom(hit.link);
+}
+
+// The search results above don't include a description — only the
+// per-work page does, so it's a second fetch. Best-effort: not every
+// edition has one, and it never overwrites text someone already typed.
+async function fillDescriptionFrom(workUrl) {
+  const field = $('f-description');
+  try {
+    const raw = await (await fetch(workUrl + '.json')).json();
+    const desc = typeof raw.description === 'string' ? raw.description : raw.description?.value;
+    if (desc && !field.value.trim()) field.value = desc.trim().slice(0, 3000);
+  } catch { /* placeholder text already tells people to paste it manually */ }
 }
 
 async function lookup(q) {
@@ -1264,10 +1215,9 @@ function shareBook(b) {
   }
 }
 
-// ?book=<id> in the URL jumps straight to that book: switches to Browse,
-// expands its "more info", and scrolls it into view. Runs once, the first
-// time that book actually shows up in state.books (it might arrive a beat
-// after the initial page load, over the live connection).
+// ?book=<id> in the URL jumps straight to that book's detail page. Runs
+// once, the first time that book actually shows up in state.books (it
+// might arrive a beat after the initial page load, over the live connection).
 let jumpedToSharedBook = false;
 function jumpToSharedBookIfNeeded() {
   if (jumpedToSharedBook) return;

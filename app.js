@@ -568,11 +568,20 @@ function bookCard(b) {
 
   foot.appendChild(el('span', 'spacer'));
 
+  // "Where to buy" is free text now (the form allows descriptive text plus
+  // links, not just one URL), so the rules no longer enforce an http(s)
+  // scheme here. Only render it as a real, clickable link when it actually
+  // is one — a bare href assignment would happily execute a javascript:
+  // URI on click otherwise. Anything else just shows as plain text.
   if (b.link) {
-    const a = el('a', 'ext', 'info ↗');
-    a.href = b.link;                    // rules restrict to http(s)
-    a.target = '_blank'; a.rel = 'noopener noreferrer';
-    foot.appendChild(a);
+    if (/^https?:\/\//i.test(b.link.trim())) {
+      const a = el('a', 'ext', 'info ↗');
+      a.href = b.link.trim();
+      a.target = '_blank'; a.rel = 'noopener noreferrer';
+      foot.appendChild(a);
+    } else {
+      foot.appendChild(el('span', 'ext', b.link));
+    }
   }
 
   /* No regular delete button — the shelf is append-only for everyone except

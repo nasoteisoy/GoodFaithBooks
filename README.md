@@ -26,10 +26,12 @@ This closes the gap the previous approach had: a client-supplied id could
 always be copied by anyone, since the data (including that id) was fully
 public, so nothing short of real auth could back an ownership check. Now:
 - Only the original submitter's signed-in identity can ever match a book's
-  `ownerPCID` — and even they can't overwrite or delete it afterward, since
-  the rules only allow *creating* a book at that path, never updating or
-  removing one. The shelf really is append-only, enforced, not just by the
-  absence of a delete button.
+  `ownerPCID` at creation time. After that, though, any signed-in friend can
+  edit or delete any book — a deliberate choice for this small trusted group,
+  not an oversight. The `?admin` toggle in the header only shows/hides the
+  delete button in the UI; the rules behind it don't check for `?admin` at
+  all (they can't — rules never see the URL), so it's a convenience, not a
+  security boundary.
 - Voting is keyed by your own real identity, so nobody can cast or erase
   someone else's vote.
 - Comments are create-only per id, and stamped with `authorUID`, so nobody

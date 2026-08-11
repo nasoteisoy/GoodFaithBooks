@@ -35,13 +35,13 @@ const WEB_API_KEY = window.BOOKCLUB_API_KEY || 'AIzaSyCU-pGbrjIxzcGBjCGfX8_W-dMc
 const IDENTITY = 'https://identitytoolkit.googleapis.com/v1';
 const SECURETOKEN = 'https://securetoken.googleapis.com/v1';
 
-/* ?admin in the URL just reveals delete buttons in the UI — it grants
-   nothing by itself. The database rules are the real gate: a delete only
-   succeeds if the signer's auth.uid is listed under bookclub/admins, which
-   nothing in this app can write (no .write rule for that path at all) — it
-   has to be added by hand in the Firebase console. So someone guessing this
-   URL sees delete buttons that simply fail with a 401 for them. */
-const ADMIN_UI = new URLSearchParams(location.search).has('admin');
+/* ?admin in the URL (or the header toggle) reveals the delete button in the
+   UI. By deliberate choice there is no allowlist behind it: the database
+   rules allow anyone signed in to delete any book, same as edit — this
+   community is small and trusted enough that the tradeoff was "no ID
+   management" over "restricted to specific people." Deliberately `let`,
+   not `const`: the header toggle flips it live, no reload needed. */
+let ADMIN_UI = new URLSearchParams(location.search).has('admin');
 
 const $ = (id) => document.getElementById(id);
 
@@ -85,6 +85,24 @@ const categoriesOf = (b) => asList(b.categories);
 // {url, desc} pairs; falls back to the old single-string `link` field for
 // books created before multi-link support existed.
 const linksOf = (b) => asList(b.links).length ? asList(b.links) : (b.link ? [{ url: b.link, desc: '' }] : []);
+
+// A clickable tag: applies this value as a filter and jumps to Browse with
+// it applied. `cls` is the full class string (caller controls styling, e.g.
+// "tag cat" vs "series-tag") so this can stand in for any tag anywhere —
+// the compact card and the detail page both use this for every taggable
+// field (faith, book type, category, format, series), per the user's ask
+// that this behavior be consistent everywhere, not just on series.
+function filterTag(cls, text, filterSet, value) {
+  const t = el('button', cls, text);
+  t.type = 'button';
+  t.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't also trigger a parent card's open-detail click
+    filterSet.add(value);
+    showTab('browse');
+    render();
+  });
+  return t;
+}
 
 function initCategoryChecks() {
   const box = $('category-checks');
@@ -177,10 +195,6 @@ async function renewAuth() {
     scheduleRefresh(j.expiresIn);
     resubscribe(); // reopen the live stream with the fresh token
     render();       // "yours" tags / vote highlighting depend on MY_UID
-    // To become an admin, this exact value goes in the Firebase console under
-    // Realtime Database -> bookclub -> admins -> (new key: this uid) -> true.
-    // Nothing in this app can write that path itself, on purpose.
-    if (ADMIN_UI) console.log('Your uid for the bookclub/admins allowlist:', MY_UID);
     return true;
   } catch (e) {
     console.error(e);
@@ -399,17 +413,65 @@ function showTab(name, updateHash = true) {
   const browsing = name !== 'add';
   // Navigating away from the form without saving cancels an in-progress edit.
   if (browsing && state.editingId) stopEditing();
+  // location.hash alone can't clear a ?book= query param, so leaving a
+  // detail view needs a full URL rewrite via pushState, not just a hash set.
+  const leavingDetail = !!state.viewingId || new URLSearchParams(location.search).has('book');
+  state.viewingId = null;
   $('panel-browse').classList.toggle('hidden', !browsing);
   $('panel-add').classList.toggle('hidden', browsing);
+  $('panel-detail').classList.add('hidden');
   $('tab-browse').classList.toggle('is-on', browsing);
   $('tab-add').classList.toggle('is-on', !browsing);
   const want = browsing ? '#browse' : '#add';
-  if (updateHash && location.hash !== want) location.hash = want;
+  if (updateHash) {
+    if (leavingDetail) history.pushState({}, '', location.pathname + want);
+    else if (location.hash !== want) location.hash = want;
+  }
 }
 $('tab-browse').addEventListener('click', () => showTab('browse'));
 $('tab-add').addEventListener('click', () => showTab('add'));
 addEventListener('hashchange', () => showTab(location.hash.slice(1) || 'browse', false));
 showTab(location.hash.slice(1) || 'browse', false);
+
+/* ------------------------------------------------------------ book detail
+   The single source of truth for "which book, if any, is being viewed" is
+   the ?book= query param — the same one the share button already produces,
+   so a shared link and a normal click land in exactly the same place. */
+function showBookDetail(id, push = true) {
+  const b = state.books.find(x => x.id === id);
+  if (!b) return;
+  state.viewingId = id;
+  $('tab-browse').classList.remove('is-on');
+  $('tab-add').classList.remove('is-on');
+  $('panel-browse').classList.add('hidden');
+  $('panel-add').classList.add('hidden');
+  $('panel-detail').classList.remove('hidden');
+  renderDetail(b);
+  if (push) {
+    const url = `${location.pathname}?book=${id}`;
+    history.pushState({ book: id }, '', url);
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function hideBookDetail(updateUrl = true) {
+  state.viewingId = null;
+  $('panel-detail').classList.add('hidden');
+  if (updateUrl) history.pushState({}, '', location.pathname + (location.hash || '#browse'));
+}
+
+$('detail-back').addEventListener('click', () => {
+  hideBookDetail();
+  showTab('browse', false);
+});
+
+// Back/forward browser buttons: re-derive the view from the URL rather than
+// trying to track history state by hand.
+addEventListener('popstate', () => {
+  const id = new URLSearchParams(location.search).get('book');
+  if (id) showBookDetail(id, false);
+  else { hideBookDetail(false); showTab(location.hash.slice(1) || 'browse', false); }
+});
 
 /* ----------------------------------------------------------------- filters */
 function tally(pick) {
@@ -456,19 +518,102 @@ const commentsOf = (b) =>
   Object.entries(b.comments || {}).map(([id, c]) => ({ id, ...c }))
     .sort((x, y) => (x.at || 0) - (y.at || 0));
 
-// Ratings are per-person (bookclub/books/$id/ratings/$who, 1-10), seeded
-// with the submitter's own rating at creation time. The average is what's
-// actually shown, so "highest rated" reflects everyone, not just whoever
-// suggested it. Older books from before this feature only have the flat
-// `rating` field — fall back to that as a single-vote average.
+// Ratings are per-person (bookclub/books/$id/ratings/$who), seeded with the
+// submitter's own rating at creation time. Newer entries are {name, value}
+// so "who rated this" can be shown; entries from before that existed are a
+// bare number — both are handled here so old data doesn't break.
+const ratingValue = (entry) => (typeof entry === 'object' && entry !== null ? entry.value : entry);
 function ratingsOf(b) {
-  const r = b.ratings && typeof b.ratings === 'object' ? Object.values(b.ratings) : [];
+  const r = b.ratings && typeof b.ratings === 'object' ? Object.values(b.ratings).map(ratingValue) : [];
   return r.length ? r : (b.rating ? [b.rating] : []);
 }
 const avgRating = (b) => {
   const r = ratingsOf(b);
   return r.length ? r.reduce((s, v) => s + v, 0) / r.length : 0;
 };
+// {name, value} pairs for display. Legacy bare-number entries have no name
+// on record, so they show as "someone" rather than guessing.
+function ratingEntries(b) {
+  if (!b.ratings || typeof b.ratings !== 'object') {
+    // Books from before per-person ratings existed at all only have the
+    // flat `rating` field — same fallback ratingsOf() already uses.
+    return b.rating ? [{ name: 'someone', value: b.rating }] : [];
+  }
+  return Object.values(b.ratings).map(entry =>
+    typeof entry === 'object' && entry !== null
+      ? { name: entry.name, value: entry.value }
+      : { name: 'someone', value: entry });
+}
+function myRatingValue(b) {
+  const r = b.ratings && MY_UID && b.ratings[MY_UID];
+  return r == null ? null : ratingValue(r);
+}
+
+function ratingWidget(b) {
+  if (!MY_UID) return null;
+  const myRating = myRatingValue(b);
+  const rateRow = el('div', 'rate-row');
+  rateRow.appendChild(el('span', 'rate-label', myRating ? `Your rating: ${myRating}/10` : 'Rate this book'));
+  const rateSelect = el('select', 'select');
+  const blank = el('option', null, '–'); blank.value = '';
+  rateSelect.appendChild(blank);
+  for (let i = 1; i <= 10; i++) {
+    const o = el('option', null, String(i));
+    o.value = String(i);
+    if (myRating === i) o.selected = true;
+    rateSelect.appendChild(o);
+  }
+  const rateBtn = el('button', 'mini', myRating ? 'update' : 'rate');
+  rateBtn.type = 'button';
+  rateBtn.addEventListener('click', async () => {
+    const val = parseInt(rateSelect.value, 10);
+    if (!val || !requireName() || !requireAuth()) return;
+    rateBtn.disabled = true;
+    try {
+      await send(`bookclub/books/${b.id}/ratings/${MY_UID}`, 'PUT', { name: who(), value: val });
+    } catch (e) { toast(e.message); }
+    rateBtn.disabled = false;
+  });
+  rateRow.append(rateSelect, rateBtn);
+  return rateRow;
+}
+
+// Who did what — votes, likes, ratings, and the last status change all show
+// names now. Deliberately not shown: who shared a link, or how many times —
+// that was never tracked and was explicitly asked to stay that way.
+function whoDidWhat(b) {
+  const box = el('div', 'who-list');
+  const voters = Object.values(votesOf(b));
+  if (voters.length) {
+    const p = el('p', 'who-line');
+    p.appendChild(el('b', null, 'Wants to read: '));
+    p.appendChild(document.createTextNode(voters.join(', ')));
+    box.appendChild(p);
+  }
+  // Older likes are a bare `true` with no name attached — only show ones we
+  // actually know the name for, rather than printing "true".
+  const likers = Object.values(likesOf(b)).filter(v => typeof v === 'string');
+  if (likers.length) {
+    const p = el('p', 'who-line');
+    p.appendChild(el('b', null, 'Liked by: '));
+    p.appendChild(document.createTextNode(likers.join(', ')));
+    box.appendChild(p);
+  }
+  if (b.status && b.status !== 'suggested' && b.statusBy) {
+    const p = el('p', 'who-line');
+    p.appendChild(el('b', null, `Marked ${b.status} by: `));
+    p.appendChild(document.createTextNode(b.statusBy));
+    box.appendChild(p);
+  }
+  const ratings = ratingEntries(b);
+  if (ratings.length) {
+    const p = el('p', 'who-line');
+    p.appendChild(el('b', null, 'Rated by: '));
+    p.appendChild(document.createTextNode(ratings.map(r => `${r.name} (${r.value}/10)`).join(', ')));
+    box.appendChild(p);
+  }
+  return box.childElementCount ? box : null;
+}
 
 function renderFilters() {
   const box = $('filters');
@@ -544,27 +689,25 @@ function coverNode(b) {
 function bookCard(b) {
   const card = el('article', 'book');
   card.dataset.id = b.id;
-  card.appendChild(coverNode(b));
+  const cover = coverNode(b);
+  cover.classList.add('clickable');
+  cover.tabIndex = 0;
+  cover.setAttribute('role', 'button');
+  cover.addEventListener('click', () => showBookDetail(b.id));
+  cover.addEventListener('keydown', (e) => { if (e.key === 'Enter') showBookDetail(b.id); });
+  card.appendChild(cover);
 
   const body = el('div', 'body');
-  const isOwner = MY_UID && b.ownerPCID === MY_UID;
-  const titleEl = el('h3', isOwner ? 'title editable' : 'title', b.title);
-  if (isOwner) {
-    titleEl.tabIndex = 0;
-    titleEl.setAttribute('role', 'button');
-    titleEl.title = 'Click to edit this book';
-    titleEl.addEventListener('click', () => startEdit(b));
-    titleEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') startEdit(b); });
-  }
+  const titleEl = el('h3', 'title clickable', b.title);
+  titleEl.tabIndex = 0;
+  titleEl.setAttribute('role', 'button');
+  titleEl.title = 'View details';
+  titleEl.addEventListener('click', () => showBookDetail(b.id));
+  titleEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') showBookDetail(b.id); });
   body.appendChild(titleEl);
   const bits = [b.author, b.bookType].filter(Boolean).join(' · ');
   if (bits) body.appendChild(el('p', 'byline', bits));
-  if (b.series) {
-    const s = el('button', 'series-tag', `📚 ${b.series}`);
-    s.type = 'button';
-    s.addEventListener('click', () => { state.series.add(b.series); render(); });
-    body.appendChild(s);
-  }
+  if (b.series) body.appendChild(filterTag('series-tag', `📚 ${b.series}`, state.series, b.series));
   const ratingCount = ratingsOf(b).length;
   if (ratingCount) {
     body.appendChild(el('div', 'stars',
@@ -572,8 +715,8 @@ function bookCard(b) {
   }
 
   const tags = el('div', 'labels');
-  if (b.faith) tags.appendChild(el('span', 'tag cat', b.faith));
-  for (const c of categoriesOf(b)) tags.appendChild(el('span', 'tag', c));
+  if (b.faith) tags.appendChild(filterTag('tag cat', b.faith, state.faith, b.faith));
+  for (const c of categoriesOf(b)) tags.appendChild(filterTag('tag', c, state.categories, c));
   if (tags.childElementCount) body.appendChild(tags);
 
   const expanded = state.expanded.has(b.id);
@@ -604,7 +747,7 @@ function bookCard(b) {
     const formats = asList(b.formats);
     if (formats.length) {
       const f = el('div', 'labels');
-      for (const fmt of formats) f.appendChild(el('span', 'tag', fmt));
+      for (const fmt of formats) f.appendChild(filterTag('tag', fmt, state.format, fmt));
       body.appendChild(f);
     }
 
@@ -630,39 +773,23 @@ function bookCard(b) {
 
     // Anyone signed in can add or change their own rating — the average
     // shown above updates live for every visitor via the normal subscription.
-    if (MY_UID) {
-      const myRating = b.ratings && b.ratings[MY_UID];
-      const rateRow = el('div', 'rate-row');
-      rateRow.appendChild(el('span', 'rate-label', myRating ? `Your rating: ${myRating}/10` : 'Rate this book'));
-      const rateSelect = el('select', 'select');
-      const blank = el('option', null, '–'); blank.value = '';
-      rateSelect.appendChild(blank);
-      for (let i = 1; i <= 10; i++) {
-        const o = el('option', null, String(i));
-        o.value = String(i);
-        if (myRating === i) o.selected = true;
-        rateSelect.appendChild(o);
-      }
-      const rateBtn = el('button', 'mini', myRating ? 'update' : 'rate');
-      rateBtn.type = 'button';
-      rateBtn.addEventListener('click', async () => {
-        const val = parseInt(rateSelect.value, 10);
-        if (!val || !requireAuth()) return;
-        rateBtn.disabled = true;
-        try {
-          await send(`bookclub/books/${b.id}/ratings/${MY_UID}`, 'PUT', val);
-        } catch (e) { toast(e.message); }
-        rateBtn.disabled = false;
-      });
-      rateRow.append(rateSelect, rateBtn);
-      body.appendChild(rateRow);
-    }
+    const rw1 = ratingWidget(b);
+    if (rw1) body.appendChild(rw1);
 
     body.appendChild(el('p', 'meta', 'suggested by ' + (b.suggestedBy || 'someone')));
   }
 
   card.appendChild(body);
+  card.appendChild(bookFooter(b, { includeCommentToggle: true }));
+  if (state.open.has(b.id)) card.appendChild(thread(b));
+  return card;
+}
 
+// Shared action-button row: vote, like, comment, mark status, share, plus
+// the owner "yours" marker and admin delete. Used by both the compact card
+// and the detail page so this interactive logic (all the send() calls and
+// error handling) exists exactly once instead of drifting between two copies.
+function bookFooter(b, opts = {}) {
   const foot = el('div', 'foot');
   const votes = votesOf(b);
   const names = Object.values(votes);
@@ -689,32 +816,35 @@ function bookCard(b) {
   like.type = 'button';
   like.title = iLike ? 'Unlike' : 'Like';
   like.addEventListener('click', async () => {
-    if (!requireAuth()) return;
+    if (!requireName() || !requireAuth()) return;
     like.disabled = true;
     try {
-      await send(`bookclub/books/${b.id}/likes/${MY_UID}`, 'PUT', iLike ? null : true);
+      await send(`bookclub/books/${b.id}/likes/${MY_UID}`, 'PUT', iLike ? null : who());
     } catch (e) { toast(e.message); }
     like.disabled = false;
   });
   foot.appendChild(like);
 
-  const cN = commentsOf(b).length;
-  const talk = el('button', 'mini', cN ? `comments ${cN}` : 'comment');
-  talk.type = 'button';
-  talk.addEventListener('click', () => {
-    state.open.has(b.id) ? state.open.delete(b.id) : state.open.add(b.id);
-    render();
-  });
-  foot.appendChild(talk);
+  if (opts.includeCommentToggle) {
+    const cN = commentsOf(b).length;
+    const talk = el('button', 'mini', cN ? `comments ${cN}` : 'comment');
+    talk.type = 'button';
+    talk.addEventListener('click', () => {
+      state.open.has(b.id) ? state.open.delete(b.id) : state.open.add(b.id);
+      render();
+    });
+    foot.appendChild(talk);
+  }
 
   const next = { suggested: 'reading', reading: 'read', read: 'suggested' };
   const mark = el('button', 'mini',
     b.status === 'read' ? 'mark unread' : `mark ${next[b.status] || 'reading'}`);
   mark.type = 'button';
   mark.addEventListener('click', async () => {
-    if (!requireAuth()) return;
-    try { await send(`bookclub/books/${b.id}/status`, 'PUT', next[b.status] || 'reading'); }
-    catch (e) { toast(e.message); }
+    if (!requireName() || !requireAuth()) return;
+    try {
+      await send(`bookclub/books/${b.id}`, 'PATCH', { status: next[b.status] || 'reading', statusBy: who() });
+    } catch (e) { toast(e.message); }
   });
   foot.appendChild(mark);
 
@@ -725,11 +855,19 @@ function bookCard(b) {
 
   foot.appendChild(el('span', 'spacer'));
 
-  /* No regular delete button — the shelf is append-only for everyone except
-   * the admin allowlist enforced by the rules (bookclub/admins), which this
-   * app has no way to write to itself. ownerPCID is set to the signer's real
-   * auth.uid at creation and can't be spoofed. */
   if (MY_UID && b.ownerPCID === MY_UID) foot.appendChild(el('span', 'yours', 'yours'));
+
+  // Anyone signed in can edit any book — a deliberate, collaborative-wiki
+  // choice (this is a small trusted group), not a bug. The delete button
+  // below is shown/hidden by ADMIN_UI (the ?admin toggle), but the rules
+  // don't actually check for that — anyone signed in can delete, same as
+  // edit. See the ADMIN_UI comment near the top of this file for why.
+  if (opts.showEdit && MY_UID) {
+    const editBtn = el('button', 'mini primary', 'edit');
+    editBtn.type = 'button';
+    editBtn.addEventListener('click', () => startEdit(b));
+    foot.appendChild(editBtn);
+  }
 
   if (ADMIN_UI) {
     const del = el('button', 'mini danger', 'delete');
@@ -748,10 +886,88 @@ function bookCard(b) {
     foot.appendChild(del);
   }
 
-  card.appendChild(foot);
+  return foot;
+}
 
-  if (state.open.has(b.id)) card.appendChild(thread(b));
-  return card;
+// The full detail page for one book — everything the compact card hides
+// behind "more info" is always shown here, plus the edit button (owner) and
+// an always-open comment thread instead of a toggle.
+function renderDetail(b) {
+  const box = $('detail-content');
+  box.replaceChildren();
+
+  const cover = coverNode(b);
+  cover.classList.add('detail-cover');
+  box.appendChild(cover);
+
+  const body = el('div', 'body detail-body');
+  body.appendChild(el('h2', 'title', b.title));
+  const bits = [b.author, b.bookType].filter(Boolean).join(' · ');
+  if (bits) body.appendChild(el('p', 'byline', bits));
+  if (b.series) body.appendChild(filterTag('series-tag', `📚 ${b.series}`, state.series, b.series));
+
+  const ratingCount = ratingsOf(b).length;
+  if (ratingCount) {
+    body.appendChild(el('div', 'stars',
+      `★ ${avgRating(b).toFixed(1)}/10 (${ratingCount} rating${ratingCount === 1 ? '' : 's'})`));
+  }
+
+  const tags = el('div', 'labels');
+  if (b.bookType) tags.appendChild(filterTag('tag', b.bookType, state.bookType, b.bookType));
+  if (b.faith) tags.appendChild(filterTag('tag cat', b.faith, state.faith, b.faith));
+  for (const c of categoriesOf(b)) tags.appendChild(filterTag('tag', c, state.categories, c));
+  if (tags.childElementCount) body.appendChild(tags);
+
+  if (b.note) {
+    const why = el('p', 'note why');
+    why.appendChild(el('b', null, 'Why recommend it: '));
+    why.appendChild(document.createTextNode(b.note));
+    body.appendChild(why);
+  }
+  if (b.description) body.appendChild(el('p', 'note', b.description));
+  if (b.warnings) {
+    const w = el('p', 'warn-note');
+    w.appendChild(el('b', null, '⚠ '));
+    w.appendChild(document.createTextNode(b.warnings));
+    body.appendChild(w);
+  }
+
+  const formats = asList(b.formats);
+  if (formats.length) {
+    const f = el('div', 'labels');
+    for (const fmt of formats) f.appendChild(filterTag('tag', fmt, state.format, fmt));
+    body.appendChild(f);
+  }
+
+  const links = linksOf(b);
+  if (links.length) {
+    const linkList = el('div', 'link-list');
+    for (const l of links) {
+      const row = el('div', 'link-item');
+      if (/^https?:\/\//i.test((l.url || '').trim())) {
+        const a = el('a', 'ext', l.desc || l.url);
+        a.href = l.url.trim();
+        a.target = '_blank'; a.rel = 'noopener noreferrer';
+        row.appendChild(a);
+      } else if (l.desc || l.url) {
+        row.appendChild(el('span', 'ext', l.desc || l.url));
+      }
+      if (row.childElementCount) linkList.appendChild(row);
+    }
+    if (linkList.childElementCount) body.appendChild(linkList);
+  }
+
+  const rw2 = ratingWidget(b);
+  if (rw2) body.appendChild(rw2);
+
+  const who1 = whoDidWhat(b);
+  if (who1) body.appendChild(who1);
+
+  body.appendChild(el('p', 'meta', 'suggested by ' + (b.suggestedBy || 'someone')));
+  body.appendChild(bookFooter(b, { showEdit: true }));
+  body.appendChild(thread(b));
+
+  box.appendChild(body);
 }
 
 function thread(b) {
@@ -794,6 +1010,12 @@ function thread(b) {
 /* ------------------------------------------------------------------ render */
 function render() {
   jumpToSharedBookIfNeeded();
+  // Keep an open detail page live too — someone else's comment/vote/edit
+  // should show up there the same way it does in the list.
+  if (state.viewingId) {
+    const b = state.books.find(x => x.id === state.viewingId);
+    if (b) renderDetail(b); else hideBookDetail();
+  }
   renderFilters();
   const list = visible();
   const grid = $('grid');
@@ -951,7 +1173,7 @@ $('form').addEventListener('submit', async (ev) => {
         // Seeds the shared ratings pool with the submitter's own score, so
         // "average rating" starts out equal to what they gave it rather than
         // 0 before anyone else has rated it.
-        ratings: { [MY_UID]: rating },
+        ratings: { [MY_UID]: { name: who(), value: rating } },
         status: 'suggested',
         suggestedBy: who(),
         ownerPCID: MY_UID,
@@ -1038,20 +1260,35 @@ function jumpToSharedBookIfNeeded() {
   if (jumpedToSharedBook) return;
   const id = new URLSearchParams(location.search).get('book');
   if (!id) { jumpedToSharedBook = true; return; }
-  const b = state.books.find(x => x.id === id);
-  if (!b) return; // not loaded yet — try again next render
+  if (!state.books.some(x => x.id === id)) return; // not loaded yet — try again next render
   jumpedToSharedBook = true;
-  state.expanded.add(id);
-  showTab('browse');
-  setTimeout(() => {
-    const card = document.querySelector(`.book[data-id="${CSS.escape(id)}"]`);
-    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, 50);
+  showBookDetail(id, false); // false: don't push a new history entry for the initial load
 }
 
 $('form').addEventListener('reset', () => setTimeout(() => {
   updatePreview(); $('form-msg').textContent = '';
 }, 0));
+
+// A visible, discoverable way to turn on admin tools instead of requiring
+// someone to already know to type ?admin in the address bar. Flips ADMIN_UI
+// live (no reload) and updates the URL so the state survives a refresh/share.
+function updateAdminToggle() {
+  $('admin-toggle').classList.toggle('is-on', ADMIN_UI);
+  $('admin-toggle').textContent = ADMIN_UI ? '⚙ admin tools: on' : '⚙ admin tools';
+}
+$('admin-toggle').addEventListener('click', () => {
+  ADMIN_UI = !ADMIN_UI;
+  const url = new URL(location.href);
+  if (ADMIN_UI) url.searchParams.set('admin', ''); else url.searchParams.delete('admin');
+  history.replaceState({}, '', url);
+  updateAdminToggle();
+  render();
+  if (state.viewingId) {
+    const b = state.books.find(x => x.id === state.viewingId);
+    if (b) renderDetail(b);
+  }
+});
+updateAdminToggle();
 
 /* -------------------------------------------------------------------- boot */
 (async function boot() {

@@ -27,12 +27,11 @@
 
     "bookclub": {
       ".read": true,
-      "admins": { "$uid": { ".validate": "newData.isBoolean()" } },
       "books": {
         ".read": true,
         "$id": {
           ".read": true,
-          ".write": "auth != null && ((!data.exists() && newData.child('ownerPCID').val() === auth.uid) || (!newData.exists() && root.child('bookclub/admins/' + auth.uid).exists()) || (data.exists() && newData.exists() && data.child('ownerPCID').val() === auth.uid))",
+          ".write": "auth != null && (!data.exists() ? newData.child('ownerPCID').val() === auth.uid : true)",
           ".validate": "newData.hasChildren(['title','author','bookType','faith','description','suggestedBy','rating','note','formats','ownerPCID','createdAt'])",
 
           "bookType":    { ".validate": "newData.isString() && newData.val().matches(/^(Board Book|Children's Book|Teen Book|Adult Nonfiction|Adult Fiction)$/)" },
@@ -64,6 +63,11 @@
             ".validate": "newData.isString() && newData.val().matches(/^(suggested|reading|read)$/)"
           },
 
+          "statusBy": {
+            ".write": "auth != null && data.parent().exists()",
+            ".validate": "newData.isString() && newData.val().length <= 80"
+          },
+
           "votes": {
             "$who": {
               ".write": "auth != null && $who === auth.uid && data.parent().parent().exists()",
@@ -74,14 +78,17 @@
           "likes": {
             "$who": {
               ".write": "auth != null && $who === auth.uid && data.parent().parent().exists()",
-              ".validate": "newData.isBoolean() && $who === auth.uid"
+              ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 80 && $who === auth.uid"
             }
           },
 
           "ratings": {
             "$who": {
               ".write": "auth != null && $who === auth.uid && data.parent().parent().exists()",
-              ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10 && $who === auth.uid"
+              ".validate": "newData.hasChildren(['name','value']) && $who === auth.uid",
+              "name":  { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 80" },
+              "value": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10" },
+              "$other": { ".validate": false }
             }
           },
 

@@ -60,6 +60,7 @@
     <input id="who" type="text" maxlength="80" placeholder="your name" autocomplete="off"
            aria-describedby="who-hint">
   </label>
+  <button type="button" id="admin-toggle" class="admin-toggle" title="Shows the delete button on books. Anyone signed in can actually delete — this just toggles whether you see the button.">⚙ admin tools</button>
 </header>
 
 <!-- First-visit nudge to set a name up front. Purely a UX prompt: browsing
@@ -80,6 +81,12 @@
   <button id="tab-browse" class="tab is-on" role="tab">Browse the shelf</button>
   <button id="tab-add" class="tab" role="tab">Suggest a book</button>
 </nav>
+
+<!-- --------------------------------------------------------- BOOK DETAIL -->
+<section id="panel-detail" class="panel hidden">
+  <button type="button" id="detail-back" class="btn back-btn">← Back to the shelf</button>
+  <article id="detail-content" class="detail"></article>
+</section>
 
 <!-- ------------------------------------------------------------ BROWSE -->
 <main id="panel-browse" class="panel">

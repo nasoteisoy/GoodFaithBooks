@@ -50,29 +50,10 @@
   <button id="tab-add" class="tab" role="tab">Suggest a book</button>
 </nav>
 
-<!-- Only shown with ?admin in the URL, and only actually works for an
-     account listed in bookclub/admins in the database — see app.js. -->
-<section id="admin-panel" class="admin-panel hidden">
-  <h2>Admin: default suggestions</h2>
-  <p class="modal-hint">These show up as options for everyone, even before any book uses them. Comma separated.</p>
-  <div class="field">
-    <label for="admin-categories">Default categories</label>
-    <input id="admin-categories" type="text" maxlength="600" placeholder="Fiction, Nonfiction, Sci-fi…">
-  </div>
-  <div class="field">
-    <label for="admin-labels">Default labels</label>
-    <input id="admin-labels" type="text" maxlength="600" placeholder="short, funny, made me cry…">
-  </div>
-  <div class="actions">
-    <button type="button" id="admin-save" class="btn primary">Save defaults</button>
-    <span id="admin-msg" class="form-msg"></span>
-  </div>
-</section>
-
 <!-- ------------------------------------------------------------ BROWSE -->
 <main id="panel-browse" class="panel">
   <div class="toolbar">
-    <input id="q" class="search" type="search" placeholder="Search title, author, note, label…" autocomplete="off">
+    <input id="q" class="search" type="search" placeholder="Search title, author, description, category…" autocomplete="off">
     <select id="sort" class="select" aria-label="Sort by">
       <option value="new">Newest first</option>
       <option value="old">Oldest first</option>
@@ -103,71 +84,100 @@
       <input id="f-website" name="website" type="text" tabindex="-1" autocomplete="off">
     </div>
 
+    <div class="row">
+      <div class="field">
+        <label for="f-book-type">Book Type <span class="req">required</span></label>
+        <select id="f-book-type" name="bookType" class="select" required>
+          <option value="">choose one…</option>
+          <option>Board Book</option>
+          <option>Children's Book</option>
+          <option>Teen Book</option>
+          <option>Adult Nonfiction</option>
+          <option>Adult Fiction</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-faith">Catholic/Christian? <span class="req">required</span></label>
+        <select id="f-faith" name="faith" class="select" required>
+          <option value="">choose one…</option>
+          <option>Catholic</option>
+          <option>Christian</option>
+          <option>Not Christian, but has Christian elements</option>
+        </select>
+      </div>
+    </div>
+
     <div class="field lookup">
       <label for="f-title">Title <span class="req">required</span></label>
       <input id="f-title" name="title" type="text" maxlength="300" required
              placeholder="Start typing — we'll look it up">
       <div id="suggest" class="suggest hidden"></div>
-      <p class="hint">Pick a match to fill in the author, year and cover automatically.</p>
+      <p class="hint">Pick a match to fill in the author and cover automatically.</p>
+    </div>
+
+    <div class="field">
+      <label for="f-author">Author <span class="req">required</span></label>
+      <input id="f-author" name="author" type="text" maxlength="200" required>
+    </div>
+
+    <div class="field">
+      <label for="f-cover">Book Cover</label>
+      <input id="f-cover" name="cover" type="url" maxlength="600" placeholder="a link to an image — filled in by lookup, or paste your own">
+      <p class="hint">Optional but helpful. A Google Drive "share" link won't display as an image here — a direct image URL works best.</p>
+    </div>
+
+    <div class="preview-wrap">
+      <img id="f-preview" class="preview hidden" alt="Cover preview">
+    </div>
+
+    <div class="field">
+      <label id="cat-label">Categories</label>
+      <p class="hint">Choose all that apply.</p>
+      <div id="category-checks" class="category-checks" role="group" aria-labelledby="cat-label"></div>
+      <input id="f-category-other" type="text" maxlength="80" placeholder="Other (optional)">
+    </div>
+
+    <div class="field">
+      <label for="f-description">Description <span class="req">required</span></label>
+      <textarea id="f-description" name="description" maxlength="3000" rows="4" required
+                placeholder="You can copy and paste the book description."></textarea>
     </div>
 
     <div class="row">
-      <div class="field">
-        <label for="f-author">Author</label>
-        <input id="f-author" name="author" type="text" maxlength="200">
-      </div>
       <div class="field narrow">
-        <label for="f-year">Year</label>
-        <input id="f-year" name="year" type="text" maxlength="8">
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="field">
-        <label for="f-category">Category</label>
-        <input id="f-category" name="category" type="text" maxlength="60" list="cats"
-               placeholder="Fiction, History, Sci-fi…">
-        <datalist id="cats"></datalist>
-      </div>
-      <div class="field narrow">
-        <label for="f-rating">Your rating</label>
-        <select id="f-rating" name="rating" class="select">
-          <option value="0">not rated</option>
-          <option value="5">★★★★★</option>
-          <option value="4">★★★★</option>
-          <option value="3">★★★</option>
-          <option value="2">★★</option>
-          <option value="1">★</option>
+        <label for="f-rating">Rating <span class="req">required</span></label>
+        <select id="f-rating" name="rating" class="select" required>
+          <option value="">–</option>
+          <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+          <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
         </select>
       </div>
     </div>
 
     <div class="field">
-      <label for="f-labels">Labels</label>
-      <input id="f-labels" name="labels" type="text" maxlength="400"
-             placeholder="comma separated — short, funny, made me cry">
-      <div id="label-bank" class="label-bank"></div>
+      <label for="f-note">Why do you recommend it? <span class="req">required</span></label>
+      <textarea id="f-note" name="note" maxlength="2000" rows="4" required
+                placeholder="Why do you love it?"></textarea>
     </div>
 
     <div class="field">
-      <label for="f-note">Why should we read it?</label>
-      <textarea id="f-note" name="note" maxlength="2000" rows="4"
-                placeholder="A sentence or two. This is the part people actually read."></textarea>
-    </div>
-
-    <div class="row">
-      <div class="field">
-        <label for="f-cover">Cover image URL</label>
-        <input id="f-cover" name="cover" type="url" maxlength="600" placeholder="filled in by lookup">
-      </div>
-      <div class="field">
-        <label for="f-link">More info link</label>
-        <input id="f-link" name="link" type="url" maxlength="600">
+      <label id="fmt-label">Formats Available <span class="req">required</span></label>
+      <div class="format-checks" role="group" aria-labelledby="fmt-label">
+        <label class="check"><input type="checkbox" name="format" value="Physical"> Physical</label>
+        <label class="check"><input type="checkbox" name="format" value="Ebook"> Ebook</label>
+        <label class="check"><input type="checkbox" name="format" value="Audiobook"> Audiobook</label>
       </div>
     </div>
 
-    <div class="preview-wrap">
-      <img id="f-preview" class="preview hidden" alt="Cover preview">
+    <div class="field">
+      <label for="f-link">Where to buy/Check it out?</label>
+      <textarea id="f-link" name="link" maxlength="600" rows="2" placeholder="You can include links!"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="f-warnings">Warning/Disclosures</label>
+      <textarea id="f-warnings" name="warnings" maxlength="1000" rows="3"
+                placeholder="If you're having to add a lot of warnings, maybe reconsider adding it to this list. (e.g. Catholic contradictions, violence, bad language, sexuality)"></textarea>
     </div>
 
     <div class="actions">

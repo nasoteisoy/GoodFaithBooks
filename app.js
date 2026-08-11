@@ -55,13 +55,46 @@ function el(tag, cls, text) {
 const state = {
   books: [],
   q: '', sort: 'new',
-  cat: new Set(), label: new Set(), person: new Set(), status: new Set(),
+  bookType: new Set(), faith: new Set(), categories: new Set(), format: new Set(),
+  person: new Set(), status: new Set(),
   open: new Set(),
-  defaultCategories: [], defaultLabels: [], // admin-set, merged into the suggestion lists below
 };
 
 // RTDB returns a dense array as-is but a sparse one as an object — accept both.
 const asList = (v) => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
+
+// The fixed category taxonomy from the recommendation form. "Other" is a
+// free-text field alongside these, not part of this list.
+const CATEGORIES = [
+  '🙏 Prayer & Spiritual Life', '❤️ Saints & Biographies', '🌸 Marian Devotion',
+  '🕊️ Sacraments', '💧 Baptism', '✝️ Confession', '🔥 Confirmation',
+  '💒 Mass and Eucharist', '🙇‍♂️ Ordination/Priesthood', '💍 Marriage',
+  '👨‍👩‍👧 Parenting & Family', '😇 Virtues & Character', "👩 Women's Spirituality",
+  "👨 Men's Spirituality", '📖 Scripture', '⛪ Church History',
+  '✝️ Catholic Basics / OCIA (RCIA)', '🛡️ Apologetics', '🎓 Philosophy',
+  '📜 Theology', '🌎 Social Teaching', '⚔️ Spiritual Warfare',
+  '🗓 Liturgical', '📅 Advent', '✝️ Lent', '🎄 Christmas', '⛪️ Easter',
+  '📚 Fiction', '📚 Non Fiction', '👩‍💻 Technology Usage', '🤪 Emotional Regulation',
+  '😰😔 Anxiety/Depression', '😔 Grief and Loss', '🧎‍♀️ Theology of the Body/Body Boundaries',
+  '🤰🤱👩‍🍼 Pregnancy/Postpartum', '🥑🏃‍♀️ Nutrition and Fitness', '🧏‍♀️ Motherhood',
+  '🏫 Schooling/Teaching', '🪧 Bilingual', '💐 Romance', '🕰 Historical Fiction',
+  '🦄 Fantasy', '❓️ Mystery', '💁‍♀️ Contemporary', '🎩 Classic',
+];
+const categoriesOf = (b) => asList(b.categories);
+
+function initCategoryChecks() {
+  const box = $('category-checks');
+  box.replaceChildren();
+  for (const c of CATEGORIES) {
+    const label = el('label', 'check');
+    const cb = el('input');
+    cb.type = 'checkbox'; cb.value = c;
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + c));
+    box.appendChild(label);
+  }
+}
+initCategoryChecks();
 
 /* --------------------------------------------------------------- identity
    Real Firebase Anonymous Auth, not a self-invented random id. The rules
@@ -298,7 +331,6 @@ function applyStream(ev) {
   }
   setStatus('live');
   render();
-  renderDatalists();
 }
 
 // Reopens the live stream on a fresh token after an auth renewal, rather
@@ -315,7 +347,7 @@ function startPolling() {
   const tick = async () => {
     try {
       state.books = fromSnapshot(await send('bookclub/books', 'GET'));
-      render(); renderDatalists();
+      render();
     } catch { /* offline; retry next tick */ }
   };
   tick();
@@ -382,7 +414,6 @@ function filterSelect(title, entries, set) {
   return wrap;
 }
 
-const labelsOf = (b) => asList(b.labels);
 const votesOf = (b) => (b.votes && typeof b.votes === 'object' ? b.votes : {});
 const commentsOf = (b) =>
   Object.entries(b.comments || {}).map(([id, c]) => ({ id, ...c }))
@@ -392,17 +423,22 @@ function renderFilters() {
   const box = $('filters');
   box.replaceChildren();
   for (const r of [
-    filterSelect('category', tally(b => [b.category]), state.cat),
-    filterSelect('label', tally(labelsOf), state.label),
+    filterSelect('type', tally(b => [b.bookType]), state.bookType),
+    filterSelect('faith', tally(b => [b.faith]), state.faith),
+    filterSelect('category', tally(categoriesOf), state.categories),
+    filterSelect('format', tally(b => asList(b.formats)), state.format),
     filterSelect('from', tally(b => [b.suggestedBy]), state.person),
     filterSelect('status', tally(b => [b.status]), state.status),
   ].filter(Boolean)) box.appendChild(r);
 
-  if (state.cat.size + state.label.size + state.person.size + state.status.size) {
+  const active = state.bookType.size + state.faith.size + state.categories.size
+    + state.format.size + state.person.size + state.status.size;
+  if (active) {
     const clear = el('button', 'chip', 'clear filters');
     clear.type = 'button';
     clear.addEventListener('click', () => {
-      state.cat.clear(); state.label.clear(); state.person.clear(); state.status.clear();
+      state.bookType.clear(); state.faith.clear(); state.categories.clear();
+      state.format.clear(); state.person.clear(); state.status.clear();
       render();
     });
     box.appendChild(clear);
@@ -412,12 +448,14 @@ function renderFilters() {
 function visible() {
   const q = state.q.trim().toLowerCase();
   const out = state.books.filter(b => {
-    if (state.cat.size && !state.cat.has(b.category)) return false;
+    if (state.bookType.size && !state.bookType.has(b.bookType)) return false;
+    if (state.faith.size && !state.faith.has(b.faith)) return false;
     if (state.person.size && !state.person.has(b.suggestedBy)) return false;
     if (state.status.size && !state.status.has(b.status)) return false;
-    if (state.label.size && !labelsOf(b).some(l => state.label.has(l))) return false;
+    if (state.categories.size && !categoriesOf(b).some(c => state.categories.has(c))) return false;
+    if (state.format.size && !asList(b.formats).some(f => state.format.has(f))) return false;
     if (!q) return true;
-    return [b.title, b.author, b.note, b.category, b.suggestedBy, b.year, ...labelsOf(b)]
+    return [b.title, b.author, b.description, b.note, b.bookType, b.faith, b.suggestedBy, ...categoriesOf(b)]
       .join(' ').toLowerCase().includes(q);
   });
   const by = {
@@ -456,16 +494,37 @@ function bookCard(b) {
 
   const body = el('div', 'body');
   body.appendChild(el('h3', 'title', b.title));
-  const bits = [b.author, b.year].filter(Boolean).join(' · ');
+  const bits = [b.author, b.bookType].filter(Boolean).join(' · ');
   if (bits) body.appendChild(el('p', 'byline', bits));
-  if (b.rating > 0) body.appendChild(el('div', 'stars', '★'.repeat(b.rating)));
+  if (b.rating > 0) body.appendChild(el('div', 'stars', `★ ${b.rating}/10`));
 
   const tags = el('div', 'labels');
-  if (b.category) tags.appendChild(el('span', 'tag cat', b.category));
-  for (const l of labelsOf(b)) tags.appendChild(el('span', 'tag', l));
+  if (b.faith) tags.appendChild(el('span', 'tag cat', b.faith));
+  for (const c of categoriesOf(b)) tags.appendChild(el('span', 'tag', c));
   if (tags.childElementCount) body.appendChild(tags);
 
-  if (b.note) body.appendChild(el('p', 'note', b.note));
+  if (b.description) body.appendChild(el('p', 'note', b.description));
+  if (b.note) {
+    const why = el('p', 'note why');
+    why.appendChild(el('b', null, 'Why recommend it: '));
+    why.appendChild(document.createTextNode(b.note));
+    body.appendChild(why);
+  }
+
+  const formats = asList(b.formats);
+  if (formats.length) {
+    const f = el('div', 'labels');
+    for (const fmt of formats) f.appendChild(el('span', 'tag', fmt));
+    body.appendChild(f);
+  }
+
+  if (b.warnings) {
+    const w = el('p', 'warn-note');
+    w.appendChild(el('b', null, '⚠ '));
+    w.appendChild(document.createTextNode(b.warnings));
+    body.appendChild(w);
+  }
+
   body.appendChild(el('p', 'meta', 'suggested by ' + (b.suggestedBy || 'someone')));
   card.appendChild(body);
 
@@ -600,34 +659,6 @@ function render() {
   } else empty.classList.add('hidden');
 }
 
-// Admin-set defaults show up even with zero uses yet; real usage counts
-// (from tally) still take a category/label that's already in use to the top.
-function withDefaults(tallied, defaults) {
-  const counts = new Map(tallied);
-  for (const d of defaults) if (!counts.has(d)) counts.set(d, 0);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(b[0]));
-}
-
-function renderDatalists() {
-  const cats = $('cats');
-  cats.replaceChildren();
-  for (const [c] of withDefaults(tally(b => [b.category]), state.defaultCategories)) {
-    const o = el('option'); o.value = c; cats.appendChild(o);
-  }
-  const bank = $('label-bank');
-  bank.replaceChildren();
-  for (const [l] of withDefaults(tally(labelsOf), state.defaultLabels).slice(0, 14)) {
-    const c = el('button', 'chip', l);
-    c.type = 'button';
-    c.addEventListener('click', () => {
-      const cur = $('f-labels').value.split(',').map(s => s.trim()).filter(Boolean);
-      if (!cur.includes(l)) cur.push(l);
-      $('f-labels').value = cur.join(', ');
-    });
-    bank.appendChild(c);
-  }
-}
-
 $('q').addEventListener('input', e => { state.q = e.target.value; render(); });
 $('sort').addEventListener('change', e => { state.sort = e.target.value; render(); });
 
@@ -640,10 +671,9 @@ const closeSuggest = () => $('suggest').classList.add('hidden');
 function fillFrom(hit) {
   $('f-title').value = hit.title || $('f-title').value;
   if (hit.author) $('f-author').value = hit.author;
-  if (hit.year) $('f-year').value = hit.year;
   if (hit.cover) $('f-cover').value = hit.cover;
   if (hit.link && !$('f-link').value) $('f-link').value = hit.link;
-  closeSuggest(); updatePreview(); $('f-note').focus();
+  closeSuggest(); updatePreview(); $('f-description').focus();
 }
 
 async function lookup(q) {
@@ -704,34 +734,44 @@ $('form').addEventListener('submit', async (ev) => {
   const msg = $('form-msg');
   msg.className = 'form-msg'; msg.textContent = '';
 
+  const bookType = $('f-book-type').value;
   const title = $('f-title').value.trim();
+  const author = $('f-author').value.trim();
+  const faith = $('f-faith').value;
+  const description = $('f-description').value.trim();
+  const rating = parseInt($('f-rating').value, 10);
+  const note = $('f-note').value.trim();
+  const formats = [...document.querySelectorAll('input[name=format]:checked')].map(c => c.value);
+
+  if (!bookType) { msg.textContent = 'Book Type is required.'; $('f-book-type').focus(); return; }
   if (!title) { msg.textContent = 'A title is required.'; $('f-title').focus(); return; }
+  if (!author) { msg.textContent = 'Author is required.'; $('f-author').focus(); return; }
+  if (!faith) { msg.textContent = 'Catholic/Christian? is required.'; $('f-faith').focus(); return; }
+  if (!description) { msg.textContent = 'A description is required.'; $('f-description').focus(); return; }
+  if (!rating) { msg.textContent = 'A rating is required.'; $('f-rating').focus(); return; }
+  if (!note) { msg.textContent = 'Tell us why you recommend it.'; $('f-note').focus(); return; }
+  if (!formats.length) { msg.textContent = 'Pick at least one format.'; return; }
   if (!requireName()) { msg.textContent = 'Add your name at the top of the page.'; return; }
   if ($('f-website').value) return;            // honeypot
   if (!requireAuth()) { msg.textContent = 'Still connecting — try again in a moment.'; return; }
 
+  const categories = [...document.querySelectorAll('#category-checks input:checked')].map(c => c.value);
+  const other = $('f-category-other').value.trim();
+  if (other) categories.push(other);
+
   // Send only fields the rules recognise: an unknown key is rejected outright.
   const book = {
-    title,
-    author: $('f-author').value.trim(),
-    year: $('f-year').value.trim(),
-    category: $('f-category').value.trim(),
-    note: $('f-note').value.trim(),
+    bookType, title, author, faith, description, note, formats,
     cover: $('f-cover').value.trim(),
     link: $('f-link').value.trim(),
-    rating: parseInt($('f-rating').value, 10) || 0,
+    warnings: $('f-warnings').value.trim(),
+    rating,
     status: 'suggested',
     suggestedBy: who(),
     ownerPCID: MY_UID,
     createdAt: Date.now(),
   };
-  // De-duplicate after lowercasing: "strange, Strange" is one label, not two.
-  // The rules accept duplicates, so without this the same tag renders twice on
-  // the card — a regression from the server build's clean_labels().
-  const labels = [...new Set(
-    $('f-labels').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
-  )].slice(0, 12);
-  if (labels.length) book.labels = labels;
+  if (categories.length) book.categories = categories;
 
   const btn = $('submit');
   btn.disabled = true;
@@ -753,33 +793,6 @@ $('form').addEventListener('reset', () => setTimeout(() => {
   updatePreview(); $('form-msg').textContent = '';
 }, 0));
 
-/* --------------------------------------------------------- admin panel
-   Only visible with ?admin in the URL — the actual write is still gated by
-   the rules' admin allowlist, same as the delete buttons. See ADMIN_UI. */
-if (ADMIN_UI) $('admin-panel').classList.remove('hidden');
-
-$('admin-save').addEventListener('click', async () => {
-  if (!requireAuth()) return;
-  const msg = $('admin-msg');
-  msg.className = 'form-msg'; msg.textContent = 'Saving…';
-  const categories = [...new Set(
-    $('admin-categories').value.split(',').map(s => s.trim()).filter(Boolean)
-  )];
-  const labels = [...new Set(
-    $('admin-labels').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
-  )];
-  try {
-    await send('bookclub/defaults/categories', 'PUT', categories);
-    await send('bookclub/defaults/labels', 'PUT', labels);
-    state.defaultCategories = categories;
-    state.defaultLabels = labels;
-    renderDatalists();
-    msg.textContent = 'Saved.'; msg.classList.add('ok');
-  } catch (e) {
-    msg.textContent = e.message;
-  }
-});
-
 /* -------------------------------------------------------------------- boot */
 (async function boot() {
   setStatus('connecting');
@@ -790,20 +803,8 @@ $('admin-save').addEventListener('click', async () => {
   // scheduled renewals, not just this first call.
   renewAuth();
   try {
-    const [books, defaults] = await Promise.all([
-      send('bookclub/books', 'GET'),
-      send('bookclub/defaults', 'GET').catch(() => null), // optional; never blocks the shelf loading
-    ]);
-    state.books = fromSnapshot(books);
-    if (defaults) {
-      state.defaultCategories = asList(defaults.categories);
-      state.defaultLabels = asList(defaults.labels);
-    }
-    if (ADMIN_UI) {
-      $('admin-categories').value = state.defaultCategories.join(', ');
-      $('admin-labels').value = state.defaultLabels.join(', ');
-    }
-    render(); renderDatalists();
+    state.books = fromSnapshot(await send('bookclub/books', 'GET'));
+    render();
   } catch {
     $('empty').classList.remove('hidden');
     $('empty').textContent = 'Could not reach the shelf. Check your connection.';

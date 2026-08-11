@@ -28,31 +28,28 @@
     "bookclub": {
       ".read": true,
       "admins": { "$uid": { ".validate": "newData.isBoolean()" } },
-      "defaults": {
-        ".write": "auth != null && root.child('bookclub/admins/' + auth.uid).exists()",
-        "categories": { "$i": { ".validate": "newData.isString() && newData.val().length <= 60" } },
-        "labels":     { "$i": { ".validate": "newData.isString() && newData.val().length <= 40" } },
-        "$other": { ".validate": false }
-      },
       "books": {
         ".read": true,
         "$id": {
           ".read": true,
           ".write": "auth != null && ((!data.exists() && newData.child('ownerPCID').val() === auth.uid) || (!newData.exists() && root.child('bookclub/admins/' + auth.uid).exists()))",
-          ".validate": "newData.hasChildren(['title','suggestedBy','ownerPCID','createdAt'])",
+          ".validate": "newData.hasChildren(['title','author','bookType','faith','description','suggestedBy','rating','note','formats','ownerPCID','createdAt'])",
 
+          "bookType":    { ".validate": "newData.isString() && newData.val().matches(/^(Board Book|Children's Book|Teen Book|Adult Nonfiction|Adult Fiction)$/)" },
           "title":       { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 300" },
-          "author":      { ".validate": "newData.isString() && newData.val().length <= 200" },
-          "year":        { ".validate": "newData.isString() && newData.val().length <= 8" },
-          "category":    { ".validate": "newData.isString() && newData.val().length <= 60" },
-          "note":        { ".validate": "newData.isString() && newData.val().length <= 2000" },
+          "author":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
+          "faith":       { ".validate": "newData.isString() && newData.val().matches(/^(Catholic|Christian|Not Christian, but has Christian elements)$/)" },
+          "description": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 3000" },
           "suggestedBy": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 80" },
           "ownerPCID":   { ".validate": "newData.isString() && newData.val() === auth.uid" },
           "cover":       { ".validate": "newData.isString() && (newData.val() == '' || (newData.val().length <= 600 && newData.val().matches(/^https?:[/][/].*/)))" },
-          "link":        { ".validate": "newData.isString() && (newData.val() == '' || (newData.val().length <= 600 && newData.val().matches(/^https?:[/][/].*/)))" },
-          "rating":      { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5" },
+          "rating":      { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10" },
+          "note":        { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
+          "link":        { ".validate": "newData.isString() && newData.val().length <= 600" },
+          "warnings":    { ".validate": "newData.isString() && newData.val().length <= 1000" },
           "createdAt":   { ".validate": "newData.isNumber()" },
-          "labels":      { "$i": { ".validate": "newData.isString() && newData.val().length <= 40" } },
+          "categories":  { "$i": { ".validate": "newData.isString() && newData.val().length <= 80" } },
+          "formats":     { "$i": { ".validate": "newData.isString() && newData.val().matches(/^(Physical|Ebook|Audiobook)$/)" } },
 
           "status": {
             ".write": "auth != null && data.parent().exists()",

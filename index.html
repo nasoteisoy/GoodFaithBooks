@@ -18,6 +18,37 @@
 </head>
 <body>
 
+<div class="hero-banner" aria-hidden="true">
+  <svg viewBox="0 0 800 180" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg">
+    <rect x="0" y="0" width="800" height="180" fill="var(--card)"/>
+    <rect x="0" y="152" width="800" height="16" fill="#8a5a34"/>
+    <rect x="16" y="70" width="14" height="98" rx="6" fill="#6d4326"/>
+    <circle cx="23" cy="64" r="12" fill="#6d4326"/>
+    <rect x="50"  y="60"  width="32" height="92"  rx="4" fill="#e0724f"/>
+    <rect x="86"  y="42"  width="26" height="110" rx="4" fill="#3fa9a4"/>
+    <rect x="116" y="72"  width="40" height="80"  rx="4" fill="#e0ab3d"/>
+    <rect x="160" y="34"  width="24" height="118" rx="4" fill="#8a5a8a"/>
+    <rect x="188" y="58"  width="34" height="94"  rx="4" fill="#4a8c5f"/>
+    <rect x="226" y="48"  width="28" height="104" rx="4" fill="#c1683f"/>
+    <rect x="258" y="66"  width="42" height="86"  rx="4" fill="#4a7a94"/>
+    <rect x="304" y="38"  width="26" height="114" rx="4" fill="#d9915a"/>
+    <rect x="334" y="58"  width="30" height="94"  rx="4" fill="#e0724f"/>
+    <rect x="368" y="44"  width="36" height="108" rx="4" fill="#3fa9a4"/>
+    <rect x="408" y="70"  width="26" height="82"  rx="4" fill="#c1683f"/>
+    <rect x="438" y="36"  width="30" height="116" rx="4" fill="#e0ab3d"/>
+    <rect x="472" y="60"  width="40" height="92"  rx="4" fill="#4a8c5f"/>
+    <rect x="516" y="46"  width="24" height="106" rx="4" fill="#8a5a8a"/>
+    <rect x="544" y="64"  width="34" height="88"  rx="4" fill="#4a7a94"/>
+    <rect x="582" y="40"  width="28" height="112" rx="4" fill="#d9915a"/>
+    <rect x="614" y="58"  width="38" height="94"  rx="4" fill="#e0724f"/>
+    <rect x="656" y="48"  width="26" height="104" rx="4" fill="#3fa9a4"/>
+    <rect x="686" y="68"  width="36" height="84"  rx="4" fill="#e0ab3d"/>
+    <rect x="726" y="42"  width="28" height="110" rx="4" fill="#c1683f"/>
+    <rect x="770" y="70"  width="14" height="98" rx="6" fill="#6d4326"/>
+    <circle cx="777" cy="64" r="12" fill="#6d4326"/>
+  </svg>
+</div>
+
 <header class="top">
   <div class="brand">
     <span class="mark">◈</span>
@@ -60,7 +91,7 @@
       <option value="title">Title A–Z</option>
       <option value="author">Author A–Z</option>
       <option value="votes">Most wanted</option>
-      <option value="rating">Highest rated</option>
+      <option value="rating" selected>Highest rated</option>
     </select>
     <button type="button" id="filters-toggle" class="btn filters-toggle" aria-expanded="false" aria-controls="filters">
       <span class="chevron">▸</span> Filters
@@ -79,6 +110,7 @@
 
 <!-- --------------------------------------------------------------- ADD -->
 <section id="panel-add" class="panel hidden">
+  <h2 id="form-heading" class="form-heading">Suggest a book</h2>
   <form id="form" class="form" autocomplete="off">
     <p id="who-hint" class="who-hint hidden">
       Add your name at the top of the page first — suggestions are signed.
@@ -125,6 +157,11 @@
     <div class="field">
       <label for="f-author">Author <span class="req">required</span></label>
       <input id="f-author" name="author" type="text" maxlength="200" required>
+    </div>
+
+    <div class="field">
+      <label for="f-series">Part of a series?</label>
+      <input id="f-series" name="series" type="text" maxlength="200" placeholder="e.g. Chronicles of Narnia (optional)">
     </div>
 
     <div class="field">
@@ -177,19 +214,20 @@
     </div>
 
     <div class="field">
-      <label for="f-link">Where to buy/Check it out?</label>
-      <textarea id="f-link" name="link" maxlength="600" rows="2" placeholder="You can include links!"></textarea>
+      <label id="links-label">Where to buy/Check it out?</label>
+      <p class="hint">Add as many links as you like, each with a short description.</p>
+      <div id="link-rows" class="link-rows" role="group" aria-labelledby="links-label"></div>
+      <button type="button" id="add-link" class="btn">+ Add a link</button>
     </div>
 
     <div class="field">
       <label for="f-warnings">Warning/Disclosures</label>
       <textarea id="f-warnings" name="warnings" maxlength="1000" rows="3"
-                placeholder="If you're having to add a lot of warnings, maybe reconsider adding it to this list. (e.g. Catholic contradictions, violence, bad language, sexuality)"></textarea>
+                placeholder="If you're having to add a lot of warnings, maybe reconsider adding it to this list. (e.g. Catholic contradictions, violence, bad language, sexual)"></textarea>
     </div>
 
     <div class="actions">
       <button type="submit" id="submit" class="btn primary">Add to the shelf</button>
-      <button type="reset" class="btn">Clear</button>
       <span id="form-msg" class="form-msg"></span>
     </div>
   </form>

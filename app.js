@@ -54,10 +54,11 @@ function el(tag, cls, text) {
 
 const state = {
   books: [],
-  q: '', sort: 'new',
-  bookType: new Set(), faith: new Set(), categories: new Set(), format: new Set(),
+  q: '', sort: 'rating',
+  bookType: new Set(), faith: new Set(), categories: new Set(), format: new Set(), series: new Set(),
   person: new Set(), status: new Set(),
   open: new Set(), expanded: new Set(),
+  editingId: null, // set while the add/suggest form is actually editing an existing owned book
 };
 
 // RTDB returns a dense array as-is but a sparse one as an object — accept both.
@@ -81,6 +82,9 @@ const CATEGORIES = [
   '🦄 Fantasy', '❓️ Mystery', '💁‍♀️ Contemporary', '🎩 Classic',
 ];
 const categoriesOf = (b) => asList(b.categories);
+// {url, desc} pairs; falls back to the old single-string `link` field for
+// books created before multi-link support existed.
+const linksOf = (b) => asList(b.links).length ? asList(b.links) : (b.link ? [{ url: b.link, desc: '' }] : []);
 
 function initCategoryChecks() {
   const box = $('category-checks');
@@ -95,6 +99,33 @@ function initCategoryChecks() {
   }
 }
 initCategoryChecks();
+
+// Repeatable (url, description) rows for "where to buy" — each row is just
+// two inputs plus a remove button, no framework needed for something this
+// small. clearLinkRows() + addLinkRow() are also reused when opening the
+// form to edit an existing book, to repopulate from its saved links.
+function addLinkRow(url = '', desc = '') {
+  const row = el('div', 'link-row');
+  const urlInput = el('input');
+  urlInput.type = 'url'; urlInput.maxLength = 600; urlInput.placeholder = 'https://…'; urlInput.value = url;
+  const descInput = el('input');
+  descInput.type = 'text'; descInput.maxLength = 120; descInput.placeholder = 'short description'; descInput.value = desc;
+  const remove = el('button', 'mini', '×');
+  remove.type = 'button';
+  remove.setAttribute('aria-label', 'Remove this link');
+  remove.addEventListener('click', () => row.remove());
+  row.append(urlInput, descInput, remove);
+  $('link-rows').appendChild(row);
+}
+function clearLinkRows() { $('link-rows').replaceChildren(); }
+function linkRowValues() {
+  return [...$('link-rows').querySelectorAll('.link-row')].map(row => {
+    const [urlInput, descInput] = row.querySelectorAll('input');
+    return { url: urlInput.value.trim(), desc: descInput.value.trim() };
+  }).filter(l => l.url || l.desc);
+}
+addLinkRow();
+$('add-link').addEventListener('click', () => addLinkRow());
 
 /* --------------------------------------------------------------- identity
    Real Firebase Anonymous Auth, not a self-invented random id. The rules
@@ -366,6 +397,8 @@ function setStatus(s) {
 /* -------------------------------------------------------------------- tabs */
 function showTab(name, updateHash = true) {
   const browsing = name !== 'add';
+  // Navigating away from the form without saving cancels an in-progress edit.
+  if (browsing && state.editingId) stopEditing();
   $('panel-browse').classList.toggle('hidden', !browsing);
   $('panel-add').classList.toggle('hidden', browsing);
   $('tab-browse').classList.toggle('is-on', browsing);
@@ -444,18 +477,19 @@ function renderFilters() {
     filterSelect('type', tally(b => [b.bookType]), state.bookType),
     filterSelect('faith', tally(b => [b.faith]), state.faith),
     filterSelect('category', tally(categoriesOf), state.categories),
+    filterSelect('series', tally(b => [b.series]), state.series),
     filterSelect('format', tally(b => asList(b.formats)), state.format),
     filterSelect('from', tally(b => [b.suggestedBy]), state.person),
     filterSelect('status', tally(b => [b.status]), state.status),
   ].filter(Boolean)) box.appendChild(r);
 
-  const active = state.bookType.size + state.faith.size + state.categories.size
+  const active = state.bookType.size + state.faith.size + state.categories.size + state.series.size
     + state.format.size + state.person.size + state.status.size;
   if (active) {
     const clear = el('button', 'chip', 'clear filters');
     clear.type = 'button';
     clear.addEventListener('click', () => {
-      state.bookType.clear(); state.faith.clear(); state.categories.clear();
+      state.bookType.clear(); state.faith.clear(); state.categories.clear(); state.series.clear();
       state.format.clear(); state.person.clear(); state.status.clear();
       render();
     });
@@ -471,9 +505,10 @@ function visible() {
     if (state.person.size && !state.person.has(b.suggestedBy)) return false;
     if (state.status.size && !state.status.has(b.status)) return false;
     if (state.categories.size && !categoriesOf(b).some(c => state.categories.has(c))) return false;
+    if (state.series.size && !state.series.has(b.series)) return false;
     if (state.format.size && !asList(b.formats).some(f => state.format.has(f))) return false;
     if (!q) return true;
-    return [b.title, b.author, b.description, b.note, b.bookType, b.faith, b.suggestedBy, ...categoriesOf(b)]
+    return [b.title, b.author, b.description, b.note, b.bookType, b.faith, b.suggestedBy, b.series, ...categoriesOf(b)]
       .join(' ').toLowerCase().includes(q);
   });
   const by = {
@@ -508,12 +543,28 @@ function coverNode(b) {
 
 function bookCard(b) {
   const card = el('article', 'book');
+  card.dataset.id = b.id;
   card.appendChild(coverNode(b));
 
   const body = el('div', 'body');
-  body.appendChild(el('h3', 'title', b.title));
+  const isOwner = MY_UID && b.ownerPCID === MY_UID;
+  const titleEl = el('h3', isOwner ? 'title editable' : 'title', b.title);
+  if (isOwner) {
+    titleEl.tabIndex = 0;
+    titleEl.setAttribute('role', 'button');
+    titleEl.title = 'Click to edit this book';
+    titleEl.addEventListener('click', () => startEdit(b));
+    titleEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') startEdit(b); });
+  }
+  body.appendChild(titleEl);
   const bits = [b.author, b.bookType].filter(Boolean).join(' · ');
   if (bits) body.appendChild(el('p', 'byline', bits));
+  if (b.series) {
+    const s = el('button', 'series-tag', `📚 ${b.series}`);
+    s.type = 'button';
+    s.addEventListener('click', () => { state.series.add(b.series); render(); });
+    body.appendChild(s);
+  }
   const ratingCount = ratingsOf(b).length;
   if (ratingCount) {
     body.appendChild(el('div', 'stars',
@@ -524,15 +575,6 @@ function bookCard(b) {
   if (b.faith) tags.appendChild(el('span', 'tag cat', b.faith));
   for (const c of categoriesOf(b)) tags.appendChild(el('span', 'tag', c));
   if (tags.childElementCount) body.appendChild(tags);
-
-  // Warnings stay visible even collapsed — the whole point of them is that
-  // nobody should have to dig for a content note before picking a book.
-  if (b.warnings) {
-    const w = el('p', 'warn-note');
-    w.appendChild(el('b', null, '⚠ '));
-    w.appendChild(document.createTextNode(b.warnings));
-    body.appendChild(w);
-  }
 
   const expanded = state.expanded.has(b.id);
   const more = el('button', 'more-toggle', expanded ? 'less info ▲' : 'more info ▼');
@@ -545,12 +587,18 @@ function bookCard(b) {
   body.appendChild(more);
 
   if (expanded) {
-    if (b.description) body.appendChild(el('p', 'note', b.description));
     if (b.note) {
       const why = el('p', 'note why');
       why.appendChild(el('b', null, 'Why recommend it: '));
       why.appendChild(document.createTextNode(b.note));
       body.appendChild(why);
+    }
+    if (b.description) body.appendChild(el('p', 'note', b.description));
+    if (b.warnings) {
+      const w = el('p', 'warn-note');
+      w.appendChild(el('b', null, '⚠ '));
+      w.appendChild(document.createTextNode(b.warnings));
+      body.appendChild(w);
     }
 
     const formats = asList(b.formats);
@@ -558,6 +606,26 @@ function bookCard(b) {
       const f = el('div', 'labels');
       for (const fmt of formats) f.appendChild(el('span', 'tag', fmt));
       body.appendChild(f);
+    }
+
+    const links = linksOf(b);
+    if (links.length) {
+      const linkList = el('div', 'link-list');
+      for (const l of links) {
+        const row = el('div', 'link-item');
+        // Same javascript:-URI guard as everywhere else user text becomes a
+        // clickable href: only a real http(s) URL gets to be an <a>.
+        if (/^https?:\/\//i.test((l.url || '').trim())) {
+          const a = el('a', 'ext', l.desc || l.url);
+          a.href = l.url.trim();
+          a.target = '_blank'; a.rel = 'noopener noreferrer';
+          row.appendChild(a);
+        } else if (l.desc || l.url) {
+          row.appendChild(el('span', 'ext', l.desc || l.url));
+        }
+        if (row.childElementCount) linkList.appendChild(row);
+      }
+      if (linkList.childElementCount) body.appendChild(linkList);
     }
 
     // Anyone signed in can add or change their own rating — the average
@@ -650,23 +718,12 @@ function bookCard(b) {
   });
   foot.appendChild(mark);
 
-  foot.appendChild(el('span', 'spacer'));
+  const share = el('button', 'mini', 'share');
+  share.type = 'button';
+  share.addEventListener('click', () => shareBook(b));
+  foot.appendChild(share);
 
-  // "Where to buy" is free text now (the form allows descriptive text plus
-  // links, not just one URL), so the rules no longer enforce an http(s)
-  // scheme here. Only render it as a real, clickable link when it actually
-  // is one — a bare href assignment would happily execute a javascript:
-  // URI on click otherwise. Anything else just shows as plain text.
-  if (b.link) {
-    if (/^https?:\/\//i.test(b.link.trim())) {
-      const a = el('a', 'ext', 'info ↗');
-      a.href = b.link.trim();
-      a.target = '_blank'; a.rel = 'noopener noreferrer';
-      foot.appendChild(a);
-    } else {
-      foot.appendChild(el('span', 'ext', b.link));
-    }
-  }
+  foot.appendChild(el('span', 'spacer'));
 
   /* No regular delete button — the shelf is append-only for everyone except
    * the admin allowlist enforced by the rules (bookclub/admins), which this
@@ -736,6 +793,7 @@ function thread(b) {
 
 /* ------------------------------------------------------------------ render */
 function render() {
+  jumpToSharedBookIfNeeded();
   renderFilters();
   const list = visible();
   const grid = $('grid');
@@ -776,7 +834,8 @@ function fillFrom(hit) {
   $('f-title').value = hit.title || $('f-title').value;
   if (hit.author) $('f-author').value = hit.author;
   if (hit.cover) $('f-cover').value = hit.cover;
-  if (hit.link && !$('f-link').value) $('f-link').value = hit.link;
+  const firstUrlInput = $('link-rows').querySelector('.link-row input');
+  if (hit.link && firstUrlInput && !firstUrlInput.value) firstUrlInput.value = hit.link;
   closeSuggest(); updatePreview(); $('f-description').focus();
 }
 
@@ -862,32 +921,51 @@ $('form').addEventListener('submit', async (ev) => {
   const categories = [...document.querySelectorAll('#category-checks input:checked')].map(c => c.value);
   const other = $('f-category-other').value.trim();
   if (other) categories.push(other);
+  const links = linkRowValues();
+  const series = $('f-series').value.trim();
+  const cover = $('f-cover').value.trim();
+  const warnings = $('f-warnings').value.trim();
 
-  // Send only fields the rules recognise: an unknown key is rejected outright.
-  const book = {
-    bookType, title, author, faith, description, note, formats,
-    cover: $('f-cover').value.trim(),
-    link: $('f-link').value.trim(),
-    warnings: $('f-warnings').value.trim(),
-    rating,
-    // Seeds the shared ratings pool with the submitter's own score, so
-    // "average rating" starts out equal to what they gave it rather than 0
-    // before anyone else has rated it.
-    ratings: { [MY_UID]: rating },
-    status: 'suggested',
-    suggestedBy: who(),
-    ownerPCID: MY_UID,
-    createdAt: Date.now(),
-  };
-  if (categories.length) book.categories = categories;
-
+  const editingId = state.editingId;
   const btn = $('submit');
   btn.disabled = true;
   try {
-    await send(`bookclub/books/${newId()}`, 'PUT', book);
+    if (editingId) {
+      // PATCH (not PUT) so this only touches these keys — status, votes,
+      // likes, ratings, comments, ownerPCID and createdAt are left alone.
+      // A PUT would silently wipe all of that, since Firebase PUT replaces
+      // the whole node.
+      const patch = {
+        bookType, title, author, faith, description, note, formats, cover, warnings, rating,
+        categories: categories.length ? categories : null,
+        links: links.length ? links : null,
+        series: series || null,
+      };
+      await send(`bookclub/books/${editingId}`, 'PATCH', patch);
+      toast(`Saved changes to “${title}”`);
+      stopEditing();
+    } else {
+      // Send only fields the rules recognise: an unknown key is rejected outright.
+      const book = {
+        bookType, title, author, faith, description, note, formats, cover, warnings, rating,
+        // Seeds the shared ratings pool with the submitter's own score, so
+        // "average rating" starts out equal to what they gave it rather than
+        // 0 before anyone else has rated it.
+        ratings: { [MY_UID]: rating },
+        status: 'suggested',
+        suggestedBy: who(),
+        ownerPCID: MY_UID,
+        createdAt: Date.now(),
+      };
+      if (categories.length) book.categories = categories;
+      if (links.length) book.links = links;
+      if (series) book.series = series;
+      await send(`bookclub/books/${newId()}`, 'PUT', book);
+      toast(`Added “${title}”`);
+    }
     $('form').reset();
+    clearLinkRows(); addLinkRow();
     updatePreview();
-    toast(`Added “${book.title}”`);
     showTab('browse');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (e) {
@@ -896,6 +974,80 @@ $('form').addEventListener('submit', async (ev) => {
     btn.disabled = false;
   }
 });
+
+// Clicking a book you own opens it here, pre-filled, instead of a blank
+// form. Only reachable via that explicit click — nothing auto-opens it.
+function startEdit(b) {
+  state.editingId = b.id;
+  $('f-book-type').value = b.bookType || '';
+  $('f-faith').value = b.faith || '';
+  $('f-title').value = b.title || '';
+  $('f-author').value = b.author || '';
+  $('f-series').value = b.series || '';
+  $('f-cover').value = b.cover || '';
+  updatePreview();
+
+  const cats = new Set(categoriesOf(b));
+  const known = new Set(CATEGORIES);
+  for (const cb of document.querySelectorAll('#category-checks input')) cb.checked = cats.has(cb.value);
+  $('f-category-other').value = [...cats].filter(c => !known.has(c)).join(', ');
+
+  $('f-description').value = b.description || '';
+  $('f-rating').value = b.rating ? String(b.rating) : '';
+  $('f-note').value = b.note || '';
+  for (const cb of document.querySelectorAll('input[name=format]')) cb.checked = asList(b.formats).includes(cb.value);
+
+  clearLinkRows();
+  const links = asList(b.links);
+  if (links.length) for (const l of links) addLinkRow(l.url, l.desc);
+  else if (b.link) addLinkRow(b.link, ''); // pre-migration single-link data
+  else addLinkRow();
+
+  $('f-warnings').value = b.warnings || '';
+
+  $('form-heading').textContent = 'Edit book';
+  $('submit').textContent = 'Save changes';
+  showTab('add');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function stopEditing() {
+  state.editingId = null;
+  $('form-heading').textContent = 'Suggest a book';
+  $('submit').textContent = 'Add to the shelf';
+}
+
+function shareBook(b) {
+  const url = `${location.origin}${location.pathname}?book=${b.id}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(
+      () => toast('Link copied!'),
+      () => prompt('Copy this link:', url)
+    );
+  } else {
+    prompt('Copy this link:', url);
+  }
+}
+
+// ?book=<id> in the URL jumps straight to that book: switches to Browse,
+// expands its "more info", and scrolls it into view. Runs once, the first
+// time that book actually shows up in state.books (it might arrive a beat
+// after the initial page load, over the live connection).
+let jumpedToSharedBook = false;
+function jumpToSharedBookIfNeeded() {
+  if (jumpedToSharedBook) return;
+  const id = new URLSearchParams(location.search).get('book');
+  if (!id) { jumpedToSharedBook = true; return; }
+  const b = state.books.find(x => x.id === id);
+  if (!b) return; // not loaded yet — try again next render
+  jumpedToSharedBook = true;
+  state.expanded.add(id);
+  showTab('browse');
+  setTimeout(() => {
+    const card = document.querySelector(`.book[data-id="${CSS.escape(id)}"]`);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 50);
+}
 
 $('form').addEventListener('reset', () => setTimeout(() => {
   updatePreview(); $('form-msg').textContent = '';
